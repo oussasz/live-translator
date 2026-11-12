@@ -8,6 +8,7 @@ use crate::core::translator::{Translator, TranslatorOutput};
 use crate::core::types::{Lang, LengthUnit, Point, Rect, Size, TranslateError, Translation};
 use crate::core::usage::Threshold;
 use serde::Serialize;
+use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
@@ -69,6 +70,8 @@ pub trait Field: Send + Sync {
     fn set_clipboard(&self, text: &str);
     fn clipboard_text(&self) -> Option<String>;
     fn read_selection(&self) -> Option<(String, Option<Rect>)>;
+    /// True while `hwnd` is still the foreground window (guards every injected keystroke).
+    fn is_focused(&self, hwnd: isize) -> bool;
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -167,6 +170,7 @@ struct Active {
 
 /// Text the owner can still insert after leaving translate mode while offline.
 struct Leftover {
+    hwnd: isize,
     original: String,
     live_output: String,
     unit: LengthUnit,
@@ -184,6 +188,8 @@ pub struct Controller {
     leftover: Option<Leftover>,
     strip: StripState,
     popup: PopupState,
+    /// Input that arrived while an Enter flush was waiting; processed before new input.
+    pending: VecDeque<InputEvent>,
 }
 
 fn status_for(e: &TranslateError) -> StripStatus {
@@ -243,6 +249,7 @@ impl Controller {
                 error: None,
                 pos: None,
             },
+            pending: VecDeque::new(),
         };
         tokio::spawn(me.run(input_rx, cmd_rx, outputs));
         ControllerHandle { input: input_tx, state, cmd: cmd_tx }
@@ -255,8 +262,12 @@ impl Controller {
         mut outputs: UnboundedReceiver<TranslatorOutput>,
     ) {
         loop {
+            if let Some(ev) = self.pending.pop_front() {
+                self.on_input(ev, &mut input).await;
+                continue;
+            }
             tokio::select! {
-                Some(ev) = input.recv() => self.on_input(ev).await,
+                Some(ev) = input.recv() => self.on_input(ev, &mut input).await,
                 Some(c) = cmds.recv() => self.on_cmd(c).await,
                 Some(o) = outputs.recv() => self.on_output(o),
                 else => break,
@@ -311,11 +322,11 @@ impl Controller {
 
     // ---------- events ----------
 
-    async fn on_input(&mut self, ev: InputEvent) {
+    async fn on_input(&mut self, ev: InputEvent, input: &mut UnboundedReceiver<InputEvent>) {
         match ev {
             InputEvent::Key(KeyInput::Hotkey(HotkeyId::Toggle)) => {
                 if self.session.is_some() {
-                    self.end_session();
+                    self.end_session().await;
                 } else {
                     self.start_session();
                 }
@@ -324,7 +335,7 @@ impl Controller {
             InputEvent::Key(KeyInput::Hotkey(HotkeyId::ReadSelection)) => self.read_selection().await,
             InputEvent::Key(KeyInput::Escape) => {
                 if self.session.is_some() {
-                    self.end_session();
+                    self.end_session().await;
                 }
             }
             InputEvent::Key(KeyInput::Text(t)) => self.edit(EditOp::Insert(t)),
@@ -334,7 +345,7 @@ impl Controller {
                 }
             }
             InputEvent::Key(KeyInput::Edit(op)) => self.edit(op),
-            InputEvent::Key(KeyInput::Enter) => self.enter().await,
+            InputEvent::Key(KeyInput::Enter) => self.enter(input).await,
             InputEvent::Key(KeyInput::Other) => self.lock_tail(),
             InputEvent::MouseDown { x, y } => {
                 if !self.point_in_strip(x, y) {
@@ -346,9 +357,11 @@ impl Controller {
             }
             InputEvent::FocusChanged => {
                 if self.session.is_some() {
-                    self.session = None;
+                    self.abandon_session();
+                } else if self.leftover.take().is_some() {
+                    // The "Insert original" offer belongs to the window we just left.
+                    self.strip.offer_original = false;
                     self.strip.visible = false;
-                    self.ui.mode(false);
                     self.push_strip();
                 }
             }
@@ -359,7 +372,7 @@ impl Controller {
         match c {
             Cmd::OfflineChoice(insert) => {
                 if let Some(l) = self.leftover.take() {
-                    if insert {
+                    if insert && self.field.is_focused(l.hwnd) {
                         let plan = plan_replace(&l.live_output, &l.original, l.unit);
                         if !plan.is_noop() && self.field.write(&plan, &l.original) == WriteOutcome::Failed {
                             self.field.set_clipboard(&l.original);
@@ -464,14 +477,48 @@ impl Controller {
         self.push_strip();
     }
 
-    fn end_session(&mut self) {
-        let Some(s) = self.session.take() else { return };
-        let failed = matches!(
+    fn status_failed(&self) -> bool {
+        matches!(
             self.strip.status,
             StripStatus::Offline | StripStatus::KeyError | StripStatus::QuotaError | StripStatus::Cap | StripStatus::Error
-        );
-        if failed && s.dirty && !s.compose.is_tail_empty() {
+        )
+    }
+
+    /// Ends the session without touching the field (focus moved elsewhere).
+    fn abandon_session(&mut self) {
+        self.session = None;
+        self.strip.visible = false;
+        self.strip.offer_original = false;
+        self.ui.mode(false);
+        self.push_strip();
+    }
+
+    /// Esc / toggle: finish the pending translation first so the last words aren't lost.
+    async fn end_session(&mut self) {
+        let flush = match &self.session {
+            Some(s) if s.dirty && !s.compose.is_tail_empty() && !self.status_failed() => {
+                Some((s.compose.tail().to_string(), s.compose.target().to_string()))
+            }
+            _ => None,
+        };
+        if let Some((tail, target)) = flush {
+            let (res, threshold) = self.translator.translate_now(&tail, &target).await;
+            self.notify_threshold(threshold);
+            match res {
+                Ok(t) => {
+                    if self.write_translation(&t) {
+                        if let Some(s) = self.session.as_mut() {
+                            s.dirty = false;
+                        }
+                    }
+                }
+                Err(e) => self.strip.status = status_for(&e),
+            }
+        }
+        let Some(s) = self.session.take() else { return };
+        if self.status_failed() && s.dirty && !s.compose.is_tail_empty() {
             self.leftover = Some(Leftover {
+                hwnd: s.focus.hwnd,
                 original: s.compose.tail().to_string(),
                 live_output: s.compose.live_output().to_string(),
                 unit: s.focus.unit,
@@ -489,6 +536,8 @@ impl Controller {
             s.compose.lock_tail();
             s.dirty = false;
             s.pending_lock = None;
+            // A translation still in flight belongs to the old caret position: drop it.
+            s.last_submitted = 0;
             self.push_strip();
         }
     }
@@ -514,6 +563,12 @@ impl Controller {
 
     /// Writes `t` over the current live output. Returns false if the app refused the write.
     fn write_translation(&mut self, t: &Translation) -> bool {
+        let Some(hwnd) = self.session.as_ref().map(|s| s.focus.hwnd) else { return false };
+        if !self.field.is_focused(hwnd) {
+            // Never type into a window the session didn't start in.
+            self.abandon_session();
+            return false;
+        }
         let Some(s) = self.session.as_mut() else { return false };
         self.strip.detected = t.detected.clone();
         let plan = plan_replace(s.compose.live_output(), &t.text, s.focus.unit);
@@ -537,24 +592,50 @@ impl Controller {
         }
     }
 
-    async fn enter(&mut self) {
+    /// Enter: make sure the field holds the final translation, then send Enter.
+    /// Never sends when the translation failed, the window changed, or the user clicked away meanwhile.
+    async fn enter(&mut self, input: &mut UnboundedReceiver<InputEvent>) {
         let Some(s) = &self.session else { return };
+        let hwnd = s.focus.hwnd;
         if s.dirty && !s.compose.is_tail_empty() {
             let (tail, target) = (s.compose.tail().to_string(), s.compose.target().to_string());
-            let (res, threshold) = self.translator.translate_now(&tail, &target).await;
+            let translator = self.translator.clone();
+            self.strip.status = StripStatus::Translating;
+            self.push_strip();
+            let flush = async move { translator.translate_now(&tail, &target).await };
+            tokio::pin!(flush);
+            let outcome = loop {
+                tokio::select! {
+                    r = &mut flush => break Some(r),
+                    Some(ev) = input.recv() => {
+                        let interrupts = matches!(ev, InputEvent::MouseDown { .. } | InputEvent::FocusChanged);
+                        self.pending.push_back(ev);
+                        if interrupts {
+                            break None;
+                        }
+                    }
+                }
+            };
+            let Some((res, threshold)) = outcome else { return };
             self.notify_threshold(threshold);
             match res {
                 Ok(t) => {
-                    self.write_translation(&t);
+                    if !self.write_translation(&t) {
+                        self.push_strip();
+                        return;
+                    }
                 }
-                Err(e) => self.strip.status = status_for(&e),
+                Err(e) => {
+                    self.strip.status = status_for(&e);
+                    self.push_strip();
+                    return;
+                }
             }
         }
-        if let Some(s) = self.session.as_mut() {
-            s.compose.lock_tail();
-            s.dirty = false;
-            s.pending_lock = None;
+        if self.session.is_none() || !self.field.is_focused(hwnd) {
+            return;
         }
+        self.lock_tail();
         self.field.send_enter();
         self.push_strip();
     }

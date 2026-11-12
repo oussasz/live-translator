@@ -10,7 +10,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use windows::core::w;
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, GetKeyboardLayout, ToUnicodeEx};
+use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, GetKeyState, GetKeyboardLayout, ToUnicodeEx};
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, CreateWindowExW, DefWindowProcW, DispatchMessageW, GetForegroundWindow, GetMessageW,
     GetWindowThreadProcessId, RegisterClassW, SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx, HHOOK,
@@ -36,56 +36,39 @@ static CTX: OnceLock<Ctx> = OnceLock::new();
 
 thread_local! {
     static HOOKS: Cell<(Option<HHOOK>, Option<HHOOK>)> = const { Cell::new((None, None)) };
-    static MODS: Cell<ModState> = const { Cell::new(ModState::new()) };
     static SWALLOWED: RefCell<[bool; 256]> = const { RefCell::new([false; 256]) };
     static HIGH_SURROGATE: Cell<Option<u16>> = const { Cell::new(None) };
 }
 
-#[derive(Clone, Copy)]
-struct ModState {
-    lctrl: bool,
-    rctrl: bool,
-    lalt: bool,
-    ralt: bool,
-    shift_l: bool,
-    shift_r: bool,
-    lwin: bool,
-    rwin: bool,
+fn is_modifier(vk: u16) -> bool {
+    matches!(vk, 0x10 | 0x11 | 0x12 | 0xA0..=0xA5 | 0x5B | 0x5C)
 }
 
-impl ModState {
-    const fn new() -> Self {
-        Self { lctrl: false, rctrl: false, lalt: false, ralt: false, shift_l: false, shift_r: false, lwin: false, rwin: false }
+fn down(vk: i32) -> bool {
+    unsafe { GetAsyncKeyState(vk) as u16 & 0x8000 != 0 }
+}
+
+/// Live modifier state. Read from the system on every key so a key-up we never saw
+/// (Ctrl+Alt+Del, Win+L, UAC happen on the secure desktop) can't leave a modifier "stuck".
+fn live_mods() -> Mods {
+    Mods {
+        ctrl: down(0xA2) || down(0xA3),
+        alt: down(0xA4) || down(0xA5),
+        shift: down(0xA0) || down(0xA1),
+        win: down(0x5B) || down(0x5C),
+        altgr: down(0xA5),
     }
-    /// Returns true if `vk` is a modifier (state updated).
-    fn update(&mut self, vk: u16, down: bool) -> bool {
-        match vk {
-            0xA2 => self.lctrl = down,
-            0xA3 => self.rctrl = down,
-            0xA4 => self.lalt = down,
-            0xA5 => self.ralt = down,
-            0xA0 => self.shift_l = down,
-            0xA1 => self.shift_r = down,
-            0x5B => self.lwin = down,
-            0x5C => self.rwin = down,
-            0x10 | 0x11 | 0x12 => {}
-            _ => return false,
-        }
-        true
-    }
-    fn mods(&self) -> Mods {
-        Mods {
-            ctrl: self.lctrl || self.rctrl,
-            alt: self.lalt || self.ralt,
-            shift: self.shift_l || self.shift_r,
-            win: self.lwin || self.rwin,
-            altgr: self.ralt,
-        }
-    }
+}
+
+enum LayoutText {
+    Text(String),
+    /// A dead key (French ^ or ¨): wait for the next key to compose.
+    Dead,
+    Nothing,
 }
 
 /// Characters the active keyboard layout produces for this key (handles dead keys).
-fn layout_text(vk: u16, scan: u32, mods: Mods) -> Option<String> {
+fn layout_text(vk: u16, scan: u32, mods: Mods) -> LayoutText {
     let mut ks = [0u8; 256];
     if mods.shift {
         ks[0x10] = 0x80;
@@ -110,9 +93,11 @@ fn layout_text(vk: u16, scan: u32, mods: Mods) -> Option<String> {
         let mut buf = [0u16; 8];
         let n = ToUnicodeEx(vk as u32, scan, &ks, &mut buf, 0, Some(layout));
         if n > 0 {
-            Some(String::from_utf16_lossy(&buf[..n as usize]))
+            LayoutText::Text(String::from_utf16_lossy(&buf[..n as usize]))
+        } else if n < 0 {
+            LayoutText::Dead
         } else {
-            None
+            LayoutText::Nothing
         }
     }
 }
@@ -131,24 +116,18 @@ fn packet_text(unit: u16) -> Option<String> {
 }
 
 /// Core of the keyboard callback: returns whether to swallow.
-fn on_key(ctx: &Ctx, vk: u16, scan: u32, down: bool) -> bool {
-    let is_mod = MODS.with(|m| {
-        let mut s = m.get();
-        let r = s.update(vk, down);
-        m.set(s);
-        r
-    });
-    if is_mod {
+fn on_key(ctx: &Ctx, vk: u16, scan: u32, key_down: bool) -> bool {
+    if is_modifier(vk) {
         return false;
     }
     let idx = (vk & 0xFF) as usize;
-    if !down {
+    if !key_down {
         return SWALLOWED.with(|s| std::mem::replace(&mut s.borrow_mut()[idx], false));
     }
     if ctx.state.paused.load(Ordering::SeqCst) {
         return false;
     }
-    let mods = MODS.with(|m| m.get().mods());
+    let mods = live_mods();
     let active = ctx.state.active.load(Ordering::SeqCst);
     let tail_empty = ctx.state.tail_empty.load(Ordering::SeqCst);
 
@@ -157,13 +136,23 @@ fn on_key(ctx: &Ctx, vk: u16, scan: u32, down: bool) -> bool {
         Some(id) => KeyInput::Hotkey(id),
         None if !active => return false,
         None => {
-            let text = if vk == VK_PACKET { packet_text(scan as u16) } else { layout_text(vk, scan, mods) };
-            if vk == VK_PACKET && text.is_none() {
-                // First half of a surrogate pair: swallow and wait for the second.
-                SWALLOWED.with(|s| s.borrow_mut()[idx] = true);
-                return true;
+            let text = if vk == VK_PACKET {
+                match packet_text(scan as u16) {
+                    Some(t) => LayoutText::Text(t),
+                    // First half of a surrogate pair: wait for the second.
+                    None => LayoutText::Dead,
+                }
+            } else {
+                layout_text(vk, scan, mods)
+            };
+            match text {
+                LayoutText::Dead => {
+                    SWALLOWED.with(|s| s.borrow_mut()[idx] = true);
+                    return true;
+                }
+                LayoutText::Text(t) => classify(vk, mods, Some(t)),
+                LayoutText::Nothing => classify(vk, mods, None),
             }
-            classify(vk, mods, text)
         }
     };
     let swallow = decide(&input, active, tail_empty);

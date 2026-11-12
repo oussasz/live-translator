@@ -19,6 +19,7 @@ struct FakeField {
     password: bool,
     write_fails: bool,
     selection: Option<(String, Option<Rect>)>,
+    focused: std::sync::atomic::AtomicBool,
 }
 
 impl FakeField {
@@ -28,6 +29,7 @@ impl FakeField {
             password: false,
             write_fails: false,
             selection: None,
+            focused: std::sync::atomic::AtomicBool::new(true),
         }
     }
     fn text(&self) -> String {
@@ -75,6 +77,9 @@ impl Field for FakeField {
     }
     fn read_selection(&self) -> Option<(String, Option<Rect>)> {
         self.selection.clone()
+    }
+    fn is_focused(&self, _hwnd: isize) -> bool {
+        self.focused.load(Ordering::SeqCst)
     }
 }
 
@@ -413,4 +418,99 @@ async fn click_on_strip_does_not_lock_sentence() {
     wait(300).await;
     assert_eq!(r.strip().source, "abc");
     assert_eq!(r.field.text(), "ABC");
+}
+
+
+// ---- final-review regressions ----
+
+#[tokio::test(start_paused = true)]
+async fn passthrough_before_translation_drops_pending() {
+    let r = rig();
+    r.toggle();
+    r.typ("ab");
+    r.key(KeyInput::Other);
+    wait(300).await;
+    assert_eq!(r.field.text(), "");
+}
+
+#[tokio::test(start_paused = true)]
+async fn write_skipped_when_window_changed() {
+    let r = rig();
+    r.toggle();
+    r.typ("ab");
+    r.field.focused.store(false, Ordering::SeqCst);
+    wait(300).await;
+    assert_eq!(r.field.text(), "");
+    assert!(!r.h.state.active.load(Ordering::SeqCst));
+}
+
+#[tokio::test(start_paused = true)]
+async fn enter_aborted_by_click_during_flush() {
+    let r = rig();
+    r.api.push_delays(&[200]);
+    r.toggle();
+    r.typ("abc");
+    r.key(KeyInput::Enter);
+    wait(50).await;
+    r.send(InputEvent::MouseDown { x: 1500, y: 10 });
+    wait(400).await;
+    assert!(!r.field.text().contains('\u{23CE}'), "Enter must not be sent: {}", r.field.text());
+}
+
+#[tokio::test(start_paused = true)]
+async fn enter_not_sent_when_window_changed_during_flush() {
+    let r = rig();
+    r.api.push_delays(&[200]);
+    r.toggle();
+    r.typ("abc");
+    r.key(KeyInput::Enter);
+    wait(50).await;
+    r.field.focused.store(false, Ordering::SeqCst);
+    wait(400).await;
+    assert_eq!(r.field.text(), "");
+}
+
+#[tokio::test(start_paused = true)]
+async fn enter_offline_keeps_tail_and_does_not_send() {
+    let r = rig();
+    r.api.fail_always(Some(TranslateError::Offline));
+    r.toggle();
+    r.typ("abc");
+    wait(300).await;
+    r.key(KeyInput::Enter);
+    wait(10).await;
+    assert_eq!(r.field.text(), "");
+    assert_eq!(r.strip().source, "abc");
+    assert_eq!(r.strip().status, StripStatus::Offline);
+}
+
+#[tokio::test(start_paused = true)]
+async fn escape_flushes_pending_translation() {
+    let r = rig();
+    r.api.push_delays(&[100]);
+    r.toggle();
+    r.typ("abc");
+    r.key(KeyInput::Escape);
+    wait(400).await;
+    assert_eq!(r.field.text(), "ABC");
+    assert!(!r.h.state.active.load(Ordering::SeqCst));
+}
+
+#[tokio::test(start_paused = true)]
+async fn focus_change_clears_offline_offer() {
+    let r = rig();
+    r.api.fail_always(Some(TranslateError::Offline));
+    r.toggle();
+    r.typ("salut");
+    wait(300).await;
+    r.key(KeyInput::Escape);
+    wait(10).await;
+    assert!(r.strip().offer_original);
+    r.send(InputEvent::FocusChanged);
+    wait(10).await;
+    assert!(!r.strip().offer_original);
+    assert!(!r.strip().visible);
+    r.h.offline_choice(true);
+    wait(10).await;
+    assert_eq!(r.field.text(), "");
 }

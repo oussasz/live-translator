@@ -4,6 +4,7 @@ use crate::core::replace::ReplacePlan;
 use crate::core::types::Rect;
 use crate::win::{clipboard, input, uia};
 use std::time::Duration;
+use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 
 #[derive(Default)]
 pub struct WinField;
@@ -20,16 +21,27 @@ impl Field for WinField {
     }
 
     fn write(&self, plan: &ReplacePlan, expect: &str) -> WriteOutcome {
+        input::prepare_injection();
         input::execute(plan);
-        std::thread::sleep(Duration::from_millis(30));
-        match uia::focused_value() {
-            Some(v) if !v.contains(expect) => WriteOutcome::Failed,
-            _ => WriteOutcome::Ok,
+        // UIA updates cross-process asynchronously: give it up to ~180 ms before calling it a failure.
+        for _ in 0..6 {
+            std::thread::sleep(Duration::from_millis(30));
+            match uia::focused_value() {
+                None => return WriteOutcome::Ok,
+                Some(v) if v.contains(expect) => return WriteOutcome::Ok,
+                Some(_) => {}
+            }
         }
+        WriteOutcome::Failed
     }
 
     fn send_enter(&self) {
+        input::prepare_injection();
         input::send_enter();
+    }
+
+    fn is_focused(&self, hwnd: isize) -> bool {
+        unsafe { GetForegroundWindow().0 as isize == hwnd }
     }
 
     fn set_clipboard(&self, text: &str) {

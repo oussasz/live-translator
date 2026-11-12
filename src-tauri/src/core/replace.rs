@@ -2,8 +2,7 @@
 pub use crate::core::types::LengthUnit;
 use unicode_segmentation::UnicodeSegmentation;
 
-/// Press Shift+Left `select_left` times, then type `type_text` (typing replaces the selection).
-/// If `type_text` is empty and `select_left > 0`, press Delete once instead.
+/// Press Backspace `select_left` times (removing the old suffix), then type `type_text`.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ReplacePlan {
     pub select_left: usize,

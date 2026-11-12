@@ -142,6 +142,13 @@ fn open_window(kind: Kind) -> (isize, isize) {
         }
     });
     let r = rx.recv().unwrap();
+    // Wait until the window is really in front: the app refuses to type into any other window.
+    let start = Instant::now();
+    while unsafe { windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow() }.0 as isize != r.0
+        && start.elapsed() < Duration::from_secs(3)
+    {
+        std::thread::sleep(Duration::from_millis(50));
+    }
     std::thread::sleep(Duration::from_millis(300));
     r
 }
@@ -270,17 +277,13 @@ fn password_field_refused() {
     assert_eq!(got, "abc");
 }
 
-#[test]
-#[ignore = "drives the real desktop"]
-fn chromium_textarea() {
-    let _s = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-    rig();
+fn run_chrome(fixture_name: &str, title: PCWSTR, text: &str) -> Option<String> {
     let chrome = r"C:\Program Files\Google\Chrome\Application\chrome.exe";
     if !std::path::Path::new(chrome).exists() {
         eprintln!("Chrome not installed; skipping");
-        return;
+        return None;
     }
-    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/textarea.html");
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(fixture_name);
     let url = format!("file:///{}", fixture.display().to_string().replace('\\', "/"));
     let profile = tempfile::tempdir().unwrap();
     let mut child = std::process::Command::new(chrome)
@@ -291,7 +294,7 @@ fn chromium_textarea() {
         .unwrap();
     let start = Instant::now();
     let hwnd = loop {
-        let h = unsafe { FindWindowW(None, w!("LT Harness Textarea")) };
+        let h = unsafe { FindWindowW(None, title) };
         if let Ok(h) = h {
             if !h.is_invalid() {
                 break h;
@@ -309,7 +312,7 @@ fn chromium_textarea() {
     }
     std::thread::sleep(Duration::from_millis(500));
     hotkey_toggle();
-    type_text("le chat noir");
+    type_text(text);
     settle();
     let got = uia::focused_value();
     end_session();
@@ -318,5 +321,26 @@ fn chromium_textarea() {
     }
     std::thread::sleep(Duration::from_millis(500));
     let _ = child.kill();
-    assert_eq!(got.as_deref(), Some("NOIR CHAT LE"));
+    Some(got.unwrap_or_default())
+}
+
+#[test]
+#[ignore = "drives the real desktop"]
+fn chromium_textarea() {
+    let _s = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    rig();
+    if let Some(got) = run_chrome("textarea.html", w!("LT Harness Textarea"), "le chat noir") {
+        assert_eq!(got, "NOIR CHAT LE");
+    }
+}
+
+#[test]
+#[ignore = "drives the real desktop"]
+fn chromium_textarea_rtl() {
+    let _s = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    rig();
+    let src = "\u{645}\u{631}\u{62d}\u{628}\u{627} \u{628}\u{643} \u{64a}\u{627} \u{635}\u{62f}\u{64a}\u{642}\u{64a}";
+    if let Some(got) = run_chrome("textarea_rtl.html", w!("LT Harness RTL"), src) {
+        assert_eq!(got, reverse_words_upper(src));
+    }
 }

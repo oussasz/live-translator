@@ -34,3 +34,7 @@ Apps: WhatsApp Desktop, WhatsApp Web (Chrome), Gmail (Chrome), Telegram Desktop,
 | Wi-Fi off: strip shows "Offline — will retry"; Esc offers Insert original | |
 | Start with Windows works (reboot) | |
 | Tray: Pause stops all capture; Quit exits | |
+| Arabic target in an RTL field (WhatsApp/Gmail): no duplicated text | |
+| Pasting multi-line text in translate mode doesn't send early | |
+| Arabic with diacritics (tashkeel) edits correctly in Word | |
+| After Ctrl+Alt+Del or Win+L: typing t/l/r doesn't trigger shortcuts | |
