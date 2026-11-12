@@ -1,3 +1,4 @@
+pub mod compose;
 pub mod google;
 pub mod hotkey;
 pub mod settings;
