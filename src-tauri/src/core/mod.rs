@@ -1,6 +1,8 @@
 pub mod compose;
 pub mod google;
 pub mod hotkey;
+pub mod placement;
+pub mod replace;
 pub mod settings;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
