@@ -337,7 +337,9 @@ impl Controller {
             InputEvent::Key(KeyInput::Enter) => self.enter().await,
             InputEvent::Key(KeyInput::Other) => self.lock_tail(),
             InputEvent::MouseDown { x, y } => {
-                self.lock_tail();
+                if !self.point_in_strip(x, y) {
+                    self.lock_tail();
+                }
                 if self.popup.visible && !self.point_in_popup(x, y) {
                     self.hide_popup();
                 }
@@ -628,6 +630,13 @@ impl Controller {
             pos: Some(place_near(anchor, POPUP_SIZE, work, GAP)),
         };
         self.ui.popup(&self.popup);
+    }
+
+    fn point_in_strip(&self, x: i32, y: i32) -> bool {
+        match (self.strip.visible, self.strip.pos) {
+            (true, Some(p)) => x >= p.x && x < p.x + STRIP_SIZE.w && y >= p.y && y < p.y + STRIP_SIZE.h,
+            _ => false,
+        }
     }
 
     fn point_in_popup(&self, x: i32, y: i32) -> bool {

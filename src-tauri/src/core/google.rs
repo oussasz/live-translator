@@ -11,6 +11,32 @@ pub trait TranslateApi: Send + Sync {
     async fn translate(&self, text: &str, target: &str) -> Result<Translation, TranslateError>;
 }
 
+/// The API in use, replaceable at runtime when the owner changes the key.
+/// With no key yet, every call fails with `InvalidKey`.
+pub struct SwappableApi {
+    inner: std::sync::RwLock<Option<std::sync::Arc<dyn TranslateApi>>>,
+}
+
+impl SwappableApi {
+    pub fn new(api: Option<std::sync::Arc<dyn TranslateApi>>) -> Self {
+        Self { inner: std::sync::RwLock::new(api) }
+    }
+    pub fn set(&self, api: std::sync::Arc<dyn TranslateApi>) {
+        *self.inner.write().unwrap() = Some(api);
+    }
+}
+
+#[async_trait]
+impl TranslateApi for SwappableApi {
+    async fn translate(&self, text: &str, target: &str) -> Result<Translation, TranslateError> {
+        let api = self.inner.read().unwrap().clone();
+        match api {
+            Some(a) => a.translate(text, target).await,
+            None => Err(TranslateError::InvalidKey),
+        }
+    }
+}
+
 pub struct GoogleV2 {
     client: reqwest::Client,
     base: String,
@@ -101,6 +127,7 @@ impl TranslateApi for GoogleV2 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
     use std::time::Duration;
     use wiremock::matchers::{body_string_contains, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -164,6 +191,25 @@ mod tests {
         Mock::given(method("POST")).respond_with(ResponseTemplate::new(400).set_body_json(body)).mount(&server).await;
         let api = GoogleV2::with_base("k".into(), server.uri());
         assert_eq!(api.translate("x", "zz").await, Err(TranslateError::Other("Invalid Value".into())));
+    }
+
+    #[tokio::test]
+    async fn swappable_without_key_is_invalid_key() {
+        let api = SwappableApi::new(None);
+        assert_eq!(api.translate("x", "en").await, Err(TranslateError::InvalidKey));
+    }
+
+    #[tokio::test]
+    async fn swappable_uses_new_key() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(body_string_contains("key=new"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(ok_body("ok")))
+            .mount(&server)
+            .await;
+        let api = SwappableApi::new(None);
+        api.set(Arc::new(GoogleV2::with_base("new".into(), server.uri())));
+        assert_eq!(api.translate("x", "en").await.unwrap().text, "ok");
     }
 
     #[tokio::test]

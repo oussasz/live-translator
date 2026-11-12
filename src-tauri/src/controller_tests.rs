@@ -400,3 +400,17 @@ async fn reply_in_starts_session_with_language() {
     assert!(r.h.state.active.load(Ordering::SeqCst));
     assert_eq!(r.strip().target, "fr");
 }
+
+#[tokio::test(start_paused = true)]
+async fn click_on_strip_does_not_lock_sentence() {
+    let r = rig();
+    r.toggle();
+    r.typ("ab");
+    wait(300).await;
+    let pos = r.strip().pos.unwrap();
+    r.send(InputEvent::MouseDown { x: pos.x + 5, y: pos.y + 5 });
+    r.typ("c");
+    wait(300).await;
+    assert_eq!(r.strip().source, "abc");
+    assert_eq!(r.field.text(), "ABC");
+}
