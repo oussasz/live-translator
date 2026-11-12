@@ -22,7 +22,8 @@
   color-scheme: light;
 }
 
-:root[data-theme="dark"] {
+:root[data-theme="dark"],
+[data-theme="dark"] {
   --accent: #3cc9a8;
   --accent-soft: rgba(60, 201, 168, 0.16);
   --warn: #f0b03c;

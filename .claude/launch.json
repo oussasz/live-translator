@@ -1,0 +1,15 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "ui-preview",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "vite",
+        "--config",
+        "vite.preview.config.ts"
+      ],
+      "port": 1430
+    }
+  ]
+}

@@ -8,6 +8,7 @@ import "@fontsource/ibm-plex-sans-arabic/600.css";
 import "./styles/tokens.css";
 import ComposeStrip from "./windows/ComposeStrip";
 import ReadPopup from "./windows/ReadPopup";
+import SettingsWindow from "./windows/settings/SettingsWindow";
 import { ThemedRoot } from "./windows/ThemedRoot";
 
 const label = getCurrentWebviewWindow().label;
@@ -19,6 +20,7 @@ function Placeholder() {
 const views: Record<string, React.ComponentType> = {
   strip: ComposeStrip,
   popup: ReadPopup,
+  settings: SettingsWindow,
 };
 const View = views[label] ?? Placeholder;
 

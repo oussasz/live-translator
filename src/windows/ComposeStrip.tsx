@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { cmd, onStrip } from "../lib/ipc";
 import { graphemes } from "../lib/langs";
 import { STATUS_COPY } from "../lib/messages";
@@ -11,6 +11,12 @@ export default function ComposeStrip() {
   const [s, setS] = useState<StripState | null>(null);
   const [pulse, setPulse] = useState(false);
   const lastTarget = useRef<string | null>(null);
+  const caretRef = useRef<HTMLSpanElement>(null);
+
+  // Long sentences: keep the caret (where you're typing) in view instead of cutting off the end.
+  useLayoutEffect(() => {
+    caretRef.current?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  });
 
   useEffect(() => {
     let off: (() => void) | undefined;
@@ -56,7 +62,7 @@ export default function ComposeStrip() {
           ) : (
             <>
               <span data-testid="before-caret">{before}</span>
-              <span className="caret" aria-hidden="true" />
+              <span className="caret" ref={caretRef} aria-hidden="true" />
               <span>{after}</span>
             </>
           )}
