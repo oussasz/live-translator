@@ -1,7 +1,56 @@
-# Tauri + React + Typescript
+# Live Translator
 
-This template should help get you started developing with Tauri, React and Typescript in Vite.
+Type in Arabic, French or English inside **any** text field on Windows, and the field fills with the translation as you type. Your original text stays visible in a small strip near the cursor. Select text anywhere and press a shortcut to read it in your language.
 
-## Recommended IDE Setup
+Personal tool. Runs locally, uses your own Google Cloud Translation key, stores nothing in the cloud.
 
-- [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+## Use it
+
+| Shortcut | What it does |
+|---|---|
+| `Ctrl+Alt+T` | Turn translate mode on or off in the focused text field |
+| `Esc` | Leave translate mode (the translated text stays) |
+| `Ctrl+Alt+L` | Switch the target language (English → French → Arabic) |
+| `Ctrl+Alt+R` | Translate the selected text in a popup |
+| `Enter` | Sends your message once the translation is in the field |
+
+All shortcuts can be changed in Settings (tray icon → Settings).
+
+- Translate mode never starts in password fields.
+- Clicking elsewhere or switching windows ends translate mode; the translation already written stays.
+- If Google can't be reached, the strip says so and retries. When you leave, you can insert your original text instead.
+- Usage is counted locally. The app stops at Google's free 500,000 characters per month unless you turn that off in Settings.
+
+## Get a Google API key
+
+1. Open Google Cloud Console and create (or pick) a project.
+2. Enable **Cloud Translation API**.
+3. APIs and Services → Credentials → Create credentials → API key.
+4. Restrict the key to the Cloud Translation API.
+5. Paste it into the app's first-run screen. It is tested once, then stored in Windows Credential Manager.
+
+## Build from source
+
+Requirements: Windows 10/11, Rust (MSVC toolchain), Node 20+, pnpm, Visual Studio Build Tools (C++), WebView2 runtime (built into Windows 11).
+
+```bash
+pnpm install
+pnpm tauri dev      # run in development
+pnpm tauri build    # installer in src-tauri/target/release/bundle/nsis/
+```
+
+## Tests
+
+```bash
+cargo test --manifest-path src-tauri/Cargo.toml          # core + controller unit tests
+pnpm test                                                # UI tests
+cargo test --manifest-path src-tauri/Cargo.toml --features test-support --test harness -- --ignored --test-threads=1
+```
+
+The last command drives the real desktop for about 15 seconds (test windows and a Chrome window). Keep your hands off the keyboard while it runs.
+
+`pnpm preview:ui` opens a browser gallery of the strip, popup and settings in light and dark.
+
+## Antivirus
+
+The app uses a system-wide keyboard hook, which some antivirus tools flag. It never writes keystrokes to disk or sends them anywhere except the text you translate to Google. If it is flagged, allow `Live Translator.exe` in your antivirus.
