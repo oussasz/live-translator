@@ -7,6 +7,7 @@ export type StripStatus =
   | "key_error"
   | "cap"
   | "quota_error"
+  | "rate_limited"
   | "error"
   | "paste_fallback"
   | "password";
@@ -27,7 +28,7 @@ export interface StripState {
   offer_original: boolean;
 }
 
-export type TranslateError = "Offline" | "InvalidKey" | "QuotaExceeded" | "CapReached" | { Other: string };
+export type TranslateError = "Offline" | "InvalidKey" | "QuotaExceeded" | "RateLimited" | "CapReached" | { Other: string };
 
 export interface PopupState {
   visible: boolean;
@@ -40,6 +41,13 @@ export interface PopupState {
 }
 
 export type Theme = "system" | "light" | "dark";
+
+export type Provider = "groq" | "google";
+
+export interface KeyStatus {
+  google: boolean;
+  groq: boolean;
+}
 
 export interface Hotkeys {
   toggle: string;
@@ -54,10 +62,14 @@ export interface Settings {
   theme: Theme;
   autostart: boolean;
   cap_enabled: boolean;
+  provider: Provider;
+  groq_model: string;
 }
 
 export interface UsageSnapshot {
   month: string;
   chars: number;
   limit: number;
+  requests_today: number;
+  request_limit: number;
 }

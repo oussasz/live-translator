@@ -3,14 +3,17 @@ import { cmd } from "../../lib/ipc";
 import type { Settings } from "../../lib/types";
 import { KeyForm } from "./KeyForm";
 import { LanguagePicker } from "./LanguagePicker";
+import { ServicePicker } from "./ServicePicker";
 
 export function FirstRun({ settings, onDone }: { settings: Settings; onDone: (s: Settings) => void }) {
   const [step, setStep] = useState<"key" | "langs">("key");
+  const [provider, setProvider] = useState(settings.provider);
+  const [model, setModel] = useState(settings.groq_model);
   const [langs, setLangs] = useState({ favorites: settings.favorites, target: settings.target });
   const [error, setError] = useState<string | null>(null);
 
   const finish = async () => {
-    const next = { ...settings, ...langs };
+    const next = { ...settings, ...langs, provider, groq_model: model };
     try {
       await cmd.saveSettings(next);
       onDone(next);
@@ -25,11 +28,12 @@ export function FirstRun({ settings, onDone }: { settings: Settings; onDone: (s:
       {step === "key" ? (
         <>
           <div>
-            <h1>Connect Google Translate</h1>
-            <p className="subtitle">Paste your Google Cloud API key. It’s tested once, then saved securely.</p>
+            <h1>Connect your translation service</h1>
+            <p className="subtitle">Pick a service and paste its API key. It’s tested once, then saved securely.</p>
           </div>
           <div className="card">
-            <KeyForm onSaved={() => setStep("langs")} />
+            <ServicePicker provider={provider} model={model} onProvider={setProvider} onModel={setModel} />
+            <KeyForm key={provider} provider={provider} onSaved={() => setStep("langs")} />
           </div>
         </>
       ) : (

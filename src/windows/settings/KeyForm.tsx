@@ -1,8 +1,11 @@
 import { useState } from "react";
 import { cmd } from "../../lib/ipc";
+import { providerInfo } from "../../lib/providers";
+import type { Provider } from "../../lib/types";
 import { keyErrorCopy } from "./keyErrors";
 
-export function KeyForm({ onSaved }: { onSaved: () => void }) {
+export function KeyForm({ provider, onSaved }: { provider: Provider; onSaved: () => void }) {
+  const info = providerInfo(provider);
   const [key, setKey] = useState("");
   const [show, setShow] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -16,7 +19,8 @@ export function KeyForm({ onSaved }: { onSaved: () => void }) {
     setBusy(true);
     setError(null);
     try {
-      await cmd.setApiKey(key.trim());
+      await cmd.setApiKey(provider, key.trim());
+      setKey("");
       onSaved();
     } catch (e) {
       setError(keyErrorCopy(e));
@@ -25,6 +29,7 @@ export function KeyForm({ onSaved }: { onSaved: () => void }) {
     }
   };
 
+  const id = `api-key-${provider}`;
   return (
     <form
       className="field"
@@ -33,16 +38,16 @@ export function KeyForm({ onSaved }: { onSaved: () => void }) {
         submit();
       }}
     >
-      <label htmlFor="api-key">Google API key</label>
+      <label htmlFor={id}>{info.keyLabel}</label>
       <div className="input-wrap">
         <input
-          id="api-key"
+          id={id}
           className="input"
           type={show ? "text" : "password"}
           value={key}
           autoComplete="off"
           spellCheck={false}
-          placeholder="AIzaSy…"
+          placeholder={info.placeholder}
           onChange={(e) => {
             setKey(e.target.value);
             setError(null);
@@ -56,10 +61,7 @@ export function KeyForm({ onSaved }: { onSaved: () => void }) {
         </button>
       </div>
       {error && <p className="error-text">{error}</p>}
-      <p className="hint">
-        Create a key in Google Cloud Console under APIs and Services, Credentials, with the Cloud Translation API
-        enabled. The key is stored in Windows Credential Manager on this PC only.
-      </p>
+      <p className="hint">{info.help} The key is stored in Windows Credential Manager on this PC only.</p>
     </form>
   );
 }

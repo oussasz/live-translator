@@ -24,6 +24,10 @@ impl SwappableApi {
     pub fn set(&self, api: std::sync::Arc<dyn TranslateApi>) {
         *self.inner.write().unwrap() = Some(api);
     }
+    /// Replace or clear (no key for the chosen service yet).
+    pub fn set_opt(&self, api: Option<std::sync::Arc<dyn TranslateApi>>) {
+        *self.inner.write().unwrap() = api;
+    }
 }
 
 #[async_trait]
@@ -196,6 +200,13 @@ mod tests {
     #[tokio::test]
     async fn swappable_without_key_is_invalid_key() {
         let api = SwappableApi::new(None);
+        assert_eq!(api.translate("x", "en").await, Err(TranslateError::InvalidKey));
+    }
+
+    #[tokio::test]
+    async fn swappable_cleared_is_invalid_key() {
+        let api = SwappableApi::new(Some(Arc::new(GoogleV2::new("k".into()))));
+        api.set_opt(None);
         assert_eq!(api.translate("x", "en").await, Err(TranslateError::InvalidKey));
     }
 

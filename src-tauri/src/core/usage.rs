@@ -13,17 +13,26 @@ pub enum Threshold {
     Reached100,
 }
 
+/// Groq free plan: requests per day.
+pub const GROQ_FREE_REQUESTS_PER_DAY: u64 = 1000;
+const REQ_WARN_AT: u64 = GROQ_FREE_REQUESTS_PER_DAY * 80 / 100;
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct UsageSnapshot {
     pub month: String,
     pub chars: u64,
     pub limit: u64,
+    pub requests_today: u64,
+    pub request_limit: u64,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
 struct UsageFile {
     month: String,
     chars: u64,
+    day: String,
+    requests: u64,
 }
 
 pub struct UsageMeter {
@@ -35,12 +44,27 @@ fn month_key(d: NaiveDate) -> String {
     d.format("%Y-%m").to_string()
 }
 
+fn day_key(d: NaiveDate) -> String {
+    d.format("%Y-%m-%d").to_string()
+}
+
+impl UsageFile {
+    fn roll(&mut self, today: NaiveDate) {
+        if self.month != month_key(today) {
+            self.month = month_key(today);
+            self.chars = 0;
+        }
+        if self.day != day_key(today) {
+            self.day = day_key(today);
+            self.requests = 0;
+        }
+    }
+}
+
 impl UsageMeter {
     pub fn load(path: PathBuf, today: NaiveDate) -> Self {
         let mut data: UsageFile = load_json_or_default(&path);
-        if data.month != month_key(today) {
-            data = UsageFile { month: month_key(today), chars: 0 };
-        }
+        data.roll(today);
         Self { path, data }
     }
 
@@ -50,9 +74,7 @@ impl UsageMeter {
 
     /// Adds `n` characters, persists, and reports a threshold crossed by this call.
     pub fn record(&mut self, n: u64, today: NaiveDate) -> Option<Threshold> {
-        if self.data.month != month_key(today) {
-            self.data = UsageFile { month: month_key(today), chars: 0 };
-        }
+        self.data.roll(today);
         let before = self.data.chars;
         self.data.chars += n;
         let after = self.data.chars;
@@ -66,13 +88,62 @@ impl UsageMeter {
         }
     }
 
+    /// Counts one Groq request for today, persists, and reports a threshold crossed by this call.
+    pub fn record_request(&mut self, today: NaiveDate) -> Option<Threshold> {
+        self.data.roll(today);
+        self.data.requests += 1;
+        let _ = save_json_atomic(&self.path, &self.data);
+        match self.data.requests {
+            GROQ_FREE_REQUESTS_PER_DAY => Some(Threshold::Reached100),
+            REQ_WARN_AT => Some(Threshold::Warn80),
+            _ => None,
+        }
+    }
+
     pub fn snapshot(&self) -> UsageSnapshot {
-        UsageSnapshot { month: self.data.month.clone(), chars: self.data.chars, limit: FREE_TIER_CHARS }
+        UsageSnapshot {
+            month: self.data.month.clone(),
+            chars: self.data.chars,
+            limit: FREE_TIER_CHARS,
+            requests_today: self.data.requests,
+            request_limit: GROQ_FREE_REQUESTS_PER_DAY,
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn requests_counted_per_day_with_thresholds() {
+        let dir = tempfile::tempdir().unwrap();
+        let t = NaiveDate::from_ymd_opt(2026, 11, 12).unwrap();
+        let mut m = UsageMeter::load(dir.path().join("usage.json"), t);
+        for _ in 0..799 {
+            assert_eq!(m.record_request(t), None);
+        }
+        assert_eq!(m.record_request(t), Some(Threshold::Warn80));
+        for _ in 0..199 {
+            m.record_request(t);
+        }
+        assert_eq!(m.record_request(t), Some(Threshold::Reached100));
+        let s = m.snapshot();
+        assert_eq!(s.requests_today, 1000);
+        assert_eq!(s.request_limit, 1000);
+    }
+
+    #[test]
+    fn request_day_rollover_and_persist() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("usage.json");
+        let d1 = NaiveDate::from_ymd_opt(2026, 11, 12).unwrap();
+        let d2 = NaiveDate::from_ymd_opt(2026, 11, 13).unwrap();
+        let mut m = UsageMeter::load(path.clone(), d1);
+        m.record_request(d1);
+        m.record_request(d1);
+        assert_eq!(UsageMeter::load(path.clone(), d1).snapshot().requests_today, 2);
+        assert_eq!(UsageMeter::load(path, d2).snapshot().requests_today, 0);
+    }
     use super::*;
     use chrono::NaiveDate;
 

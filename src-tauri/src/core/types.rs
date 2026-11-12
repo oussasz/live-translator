@@ -18,6 +18,8 @@ pub enum TranslateError {
     InvalidKey,
     #[error("Google quota exceeded")]
     QuotaExceeded,
+    #[error("rate limited")]
+    RateLimited,
     #[error("free monthly limit reached")]
     CapReached,
     #[error("{0}")]

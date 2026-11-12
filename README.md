@@ -2,7 +2,7 @@
 
 Type in Arabic, French or English inside **any** text field on Windows, and the field fills with the translation as you type. Your original text stays visible in a small strip near the cursor. Select text anywhere and press a shortcut to read it in your language.
 
-Personal tool. Runs locally, uses your own Google Cloud Translation key, stores nothing in the cloud.
+Personal tool. Runs locally and uses your own API key for **Groq** (default, free plan works) or **Google Cloud Translation**. Pick the service, and for Groq the model, in Settings.
 
 ## Use it
 
@@ -19,9 +19,17 @@ All shortcuts can be changed in Settings (tray icon → Settings).
 - Translate mode never starts in password fields.
 - Clicking elsewhere or switching windows ends translate mode; the translation already written stays.
 - If Google can't be reached, the strip says so and retries. When you leave, you can insert your original text instead.
-- Usage is counted locally. The app stops at Google's free 500,000 characters per month unless you turn that off in Settings.
+- Usage is counted locally: Groq requests per day (free plan: 1,000/day, 30/minute; the app paces itself), or Google characters per month (stops at the free 500,000 unless you turn that off).
 
-## Get a Google API key
+## Get a Groq API key
+
+1. Sign in at console.groq.com.
+2. API Keys → Create API key.
+3. Paste it into the app's first-run screen (Groq is selected by default).
+
+Models offered: GPT-OSS 20B (fastest, default), GPT-OSS 120B (best quality), Llama 3.3 70B, Llama 3.1 8B.
+
+## Get a Google API key (optional)
 
 1. Open Google Cloud Console and create (or pick) a project.
 2. Enable **Cloud Translation API**.
@@ -53,4 +61,4 @@ The last command drives the real desktop for about 15 seconds (test windows and 
 
 ## Antivirus
 
-The app uses a system-wide keyboard hook, which some antivirus tools flag. It never writes keystrokes to disk or sends them anywhere except the text you translate to Google. If it is flagged, allow `Live Translator.exe` in your antivirus.
+The app uses a system-wide keyboard hook, which some antivirus tools flag. It never writes keystrokes to disk or sends them anywhere except the text you translate to the service you chose. If it is flagged, allow `Live Translator.exe` in your antivirus.

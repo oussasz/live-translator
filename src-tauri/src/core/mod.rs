@@ -1,5 +1,6 @@
 pub mod compose;
 pub mod google;
+pub mod groq;
 pub mod hotkey;
 pub mod placement;
 pub mod replace;

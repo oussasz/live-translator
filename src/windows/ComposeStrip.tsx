@@ -5,7 +5,7 @@ import { STATUS_COPY } from "../lib/messages";
 import type { StripState } from "../lib/types";
 import "./strip.css";
 
-const WARN = new Set(["offline", "key_error", "cap", "quota_error", "error", "paste_fallback", "password"]);
+const WARN = new Set(["offline", "key_error", "cap", "quota_error", "rate_limited", "error", "paste_fallback", "password"]);
 
 export default function ComposeStrip() {
   const [s, setS] = useState<StripState | null>(null);

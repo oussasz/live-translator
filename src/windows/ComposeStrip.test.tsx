@@ -65,6 +65,11 @@ test("status_messages", () => {
   expect(screen.getByText("Not available in password fields")).toBeInTheDocument();
 });
 
+test("rate_limited_message", () => {
+  show({ status: "rate_limited", source: "salut", caret: 5 });
+  expect(screen.getByText("Groq rate limit \u2014 retrying")).toBeInTheDocument();
+});
+
 test("hidden_when_not_visible", () => {
   const { container } = render(<ComposeStrip />);
   act(() => push({ ...base, visible: false }));

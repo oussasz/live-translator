@@ -10,6 +10,8 @@ const settings: Settings = {
   theme: "system",
   autostart: true,
   cap_enabled: true,
+  provider: "groq",
+  groq_model: "openai/gpt-oss-20b",
 };
 
 export function onStrip(cb: (s: StripState) => void) {
@@ -28,12 +30,12 @@ export function onSettingsChanged() {
   return Promise.resolve(() => {});
 }
 
-const usage: UsageSnapshot = { month: "2026-11", chars: 41200, limit: 500000 };
+const usage: UsageSnapshot = { month: "2026-11", chars: 41200, limit: 500000, requests_today: 120, request_limit: 1000 };
 
 export const cmd = {
   getSettings: () => Promise.resolve(structuredClone(settings)),
   saveSettings: () => Promise.resolve(),
-  hasApiKey: () => Promise.resolve(new URLSearchParams(location.search).get("firstrun") === null),
+  hasApiKey: () => { const k = new URLSearchParams(location.search).get("firstrun") === null; return Promise.resolve({ google: k, groq: k }); },
   setApiKey: () => Promise.reject("InvalidKey"),
   getUsage: () => Promise.resolve(usage),
   cycleTarget: () => Promise.resolve(),

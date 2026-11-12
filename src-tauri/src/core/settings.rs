@@ -4,6 +4,19 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// Which translation service is used.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Provider {
+    Google,
+    #[default]
+    Groq,
+}
+
+/// Groq production chat models offered in Settings (all usable on the free plan).
+pub const GROQ_MODELS: [&str; 4] =
+    ["openai/gpt-oss-20b", "openai/gpt-oss-120b", "llama-3.3-70b-versatile", "llama-3.1-8b-instant"];
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Theme {
@@ -39,6 +52,8 @@ pub struct Settings {
     pub theme: Theme,
     pub autostart: bool,
     pub cap_enabled: bool,
+    pub provider: Provider,
+    pub groq_model: String,
 }
 
 impl Default for Settings {
@@ -50,6 +65,8 @@ impl Default for Settings {
             theme: Theme::System,
             autostart: true,
             cap_enabled: true,
+            provider: Provider::Groq,
+            groq_model: GROQ_MODELS[0].into(),
         }
     }
 }
@@ -99,6 +116,29 @@ pub(crate) fn save_json_atomic<T: Serialize>(path: &Path, value: &T) -> std::io:
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn provider_defaults_to_groq_with_fast_model() {
+        let s = Settings::default();
+        assert_eq!(s.provider, Provider::Groq);
+        assert_eq!(s.groq_model, "openai/gpt-oss-20b");
+        assert!(GROQ_MODELS.contains(&s.groq_model.as_str()));
+    }
+
+    #[test]
+    fn old_settings_file_gets_groq_defaults() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        std::fs::write(&path, r#"{"target":"fr","theme":"dark"}"#).unwrap();
+        let s = Settings::load(&path);
+        assert_eq!(s.provider, Provider::Groq);
+        assert_eq!(s.target, "fr");
+    }
+
+    #[test]
+    fn provider_serializes_lowercase() {
+        assert_eq!(serde_json::to_string(&Provider::Google).unwrap(), "\"google\"");
+    }
     use super::*;
     use std::fs;
 

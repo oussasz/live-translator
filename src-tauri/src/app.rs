@@ -1,6 +1,9 @@
 //! Tauri wiring: app state, UI sink, tray, and non-activating overlay windows.
 use crate::controller::{Controller, ControllerHandle, HotkeyId, PopupState, StripState, UiSink};
 use crate::core::google::{GoogleV2, SwappableApi, TranslateApi};
+use crate::core::groq::GroqClient;
+use crate::core::settings::Provider;
+use crate::core::translator::Pacing;
 use crate::core::hotkey::Hotkey;
 use crate::core::settings::Settings;
 use crate::core::translator::Translator;
@@ -30,6 +33,27 @@ pub struct AppState {
     pub cap_enabled: Arc<AtomicBool>,
     pub api: Arc<SwappableApi>,
     pub hotkeys: HotkeyTable,
+    pub translator: Arc<Translator>,
+}
+
+/// The client for a service and key (Groq uses the chosen model).
+pub fn client_for(provider: Provider, key: String, groq_model: &str) -> Arc<dyn TranslateApi> {
+    match provider {
+        Provider::Google => Arc::new(GoogleV2::new(key)),
+        Provider::Groq => Arc::new(GroqClient::new(key, groq_model.to_string())),
+    }
+}
+
+/// The stored-key client for the chosen service, if a key exists.
+pub fn api_for(s: &Settings) -> Option<Arc<dyn TranslateApi>> {
+    keystore::get_api_key(s.provider).map(|k| client_for(s.provider, k, &s.groq_model))
+}
+
+pub fn pacing_for(p: Provider) -> Pacing {
+    match p {
+        Provider::Google => Pacing::Google,
+        Provider::Groq => Pacing::Groq,
+    }
 }
 
 pub const LANG_NAMES: [(&str, &str); 3] = [("en", "English"), ("fr", "French"), ("ar", "Arabic")];
@@ -205,9 +229,10 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let initial = Settings::load(&settings_path);
     let usage = Arc::new(Mutex::new(UsageMeter::load(dir.join("usage.json"), chrono::Local::now().date_naive())));
     let cap_enabled = Arc::new(AtomicBool::new(initial.cap_enabled));
-    let key = keystore::get_api_key();
-    let has_key = key.is_some();
-    let api = Arc::new(SwappableApi::new(key.map(|k| Arc::new(GoogleV2::new(k)) as Arc<dyn TranslateApi>)));
+    let first_api = api_for(&initial);
+    let has_key = first_api.is_some();
+    let provider = initial.provider;
+    let api = Arc::new(SwappableApi::new(first_api));
     let hotkeys: HotkeyTable = Arc::new(RwLock::new(hotkey_table(&initial)));
     let target = initial.target.clone();
     let autostart = initial.autostart;
@@ -216,6 +241,8 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let ui = Arc::new(TauriUiSink::new(app.handle().clone()));
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
     let translator = Translator::new(api.clone(), usage.clone(), cap_enabled.clone(), tx);
+    translator.set_pacing(pacing_for(provider));
+    let translator_for_state = translator.clone();
     let field = Arc::new(WinField::new());
     let ui_for_ctrl = ui.clone();
     let settings_for_ctrl = settings.clone();
@@ -234,7 +261,7 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     build_tray(app.handle(), &ui, &target)?;
     sync_autostart(app.handle(), autostart);
 
-    app.manage(AppState { handle, settings, settings_path, usage, cap_enabled, api, hotkeys });
+    app.manage(AppState { handle, settings, settings_path, usage, cap_enabled, api, hotkeys, translator: translator_for_state });
     if !has_key || !std::env::args().any(|a| a == "--minimized") {
         open_settings(app.handle());
     }

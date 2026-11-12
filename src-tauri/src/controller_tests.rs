@@ -514,3 +514,15 @@ async fn focus_change_clears_offline_offer() {
     wait(10).await;
     assert_eq!(r.field.text(), "");
 }
+
+#[tokio::test(start_paused = true)]
+async fn rate_limited_shows_status_and_retries() {
+    let r = rig();
+    r.api.push_errors(&[Some(TranslateError::RateLimited)]);
+    r.toggle();
+    r.typ("salut");
+    wait(300).await;
+    assert_eq!(r.strip().status, StripStatus::RateLimited);
+    wait(2500).await;
+    assert_eq!(r.field.text(), "SALUT");
+}

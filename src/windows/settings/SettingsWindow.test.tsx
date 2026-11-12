@@ -9,6 +9,8 @@ const defaults: Settings = {
   theme: "system",
   autostart: true,
   cap_enabled: true,
+  provider: "groq",
+  groq_model: "openai/gpt-oss-20b",
 };
 
 vi.mock("../../lib/ipc", () => ({
@@ -31,30 +33,30 @@ beforeEach(() => {
   vi.clearAllMocks();
   m.getSettings.mockResolvedValue(structuredClone(defaults));
   m.saveSettings.mockResolvedValue(undefined);
-  m.hasApiKey.mockResolvedValue(true);
-  m.getUsage.mockResolvedValue({ month: "2026-11", chars: 41200, limit: 500000 });
+  m.hasApiKey.mockResolvedValue({ google: true, groq: true });
+  m.getUsage.mockResolvedValue({ month: "2026-11", chars: 41200, limit: 500000, requests_today: 120, request_limit: 1000 });
 });
 
 test("first_run_when_no_key", async () => {
-  m.hasApiKey.mockResolvedValue(false);
+  m.hasApiKey.mockResolvedValue({ google: false, groq: false });
   render(<SettingsWindow />);
-  expect(await screen.findByRole("heading", { name: "Connect Google Translate" })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "Connect your translation service" })).toBeInTheDocument();
 });
 
 test("invalid_key_message", async () => {
-  m.hasApiKey.mockResolvedValue(false);
+  m.hasApiKey.mockResolvedValue({ google: false, groq: false });
   m.setApiKey.mockRejectedValue("InvalidKey");
   render(<SettingsWindow />);
-  fireEvent.change(await screen.findByLabelText("Google API key"), { target: { value: "bad" } });
+  fireEvent.change(await screen.findByLabelText("Groq API key"), { target: { value: "bad" } });
   fireEvent.click(screen.getByRole("button", { name: "Test and save" }));
   expect(await screen.findByText("That key didn\u2019t work. Check it in Google Cloud Console.")).toBeInTheDocument();
 });
 
 test("first_run_success_then_languages_then_done", async () => {
-  m.hasApiKey.mockResolvedValue(false);
+  m.hasApiKey.mockResolvedValue({ google: false, groq: false });
   m.setApiKey.mockResolvedValue(undefined);
   render(<SettingsWindow />);
-  fireEvent.change(await screen.findByLabelText("Google API key"), { target: { value: "good" } });
+  fireEvent.change(await screen.findByLabelText("Groq API key"), { target: { value: "good" } });
   fireEvent.click(screen.getByRole("button", { name: "Test and save" }));
   expect(await screen.findByRole("heading", { name: "Pick your languages" })).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Done" }));
@@ -87,8 +89,39 @@ test("theme_change_saves", async () => {
   await waitFor(() => expect(m.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ theme: "dark" })));
 });
 
+test("first_run_saves_key_for_chosen_service", async () => {
+  m.hasApiKey.mockResolvedValue({ google: false, groq: false });
+  m.setApiKey.mockResolvedValue(undefined);
+  render(<SettingsWindow />);
+  fireEvent.change(await screen.findByLabelText("Groq API key"), { target: { value: "gsk_good" } });
+  fireEvent.click(screen.getByRole("button", { name: "Test and save" }));
+  await waitFor(() => expect(m.setApiKey).toHaveBeenCalledWith("groq", "gsk_good"));
+});
+
+test("switching_service_saves_provider_and_asks_for_missing_key", async () => {
+  m.hasApiKey.mockResolvedValue({ google: false, groq: true });
+  render(<SettingsWindow />);
+  fireEvent.click(await screen.findByRole("radio", { name: "Google Translate" }));
+  await waitFor(() => expect(m.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ provider: "google" })));
+  expect(await screen.findByLabelText("Google API key")).toBeInTheDocument();
+});
+
+test("model_select_saves", async () => {
+  render(<SettingsWindow />);
+  fireEvent.change(await screen.findByLabelText("Groq model"), { target: { value: "openai/gpt-oss-120b" } });
+  await waitFor(() => expect(m.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ groq_model: "openai/gpt-oss-120b" })));
+});
+
+test("groq_usage_shows_requests_today", async () => {
+  m.getUsage.mockResolvedValue({ month: "2026-11", chars: 0, limit: 500000, requests_today: 850, request_limit: 1000 });
+  render(<SettingsWindow />);
+  expect(await screen.findByText("Today: 850 / 1,000 requests")).toBeInTheDocument();
+  expect(screen.getByTestId("usage-bar")).toHaveAttribute("data-warn", "true");
+});
+
 test("usage_bar_formats_and_warns", async () => {
-  m.getUsage.mockResolvedValue({ month: "2026-11", chars: 410000, limit: 500000 });
+  m.getSettings.mockResolvedValue({ ...structuredClone(defaults), provider: "google" });
+  m.getUsage.mockResolvedValue({ month: "2026-11", chars: 410000, limit: 500000, requests_today: 0, request_limit: 1000 });
   render(<SettingsWindow />);
   expect(await screen.findByText("This month: 410,000 / 500,000 free")).toBeInTheDocument();
   expect(screen.getByTestId("usage-bar")).toHaveAttribute("data-warn", "true");

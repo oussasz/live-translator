@@ -84,6 +84,7 @@ pub enum StripStatus {
     KeyError,
     Cap,
     QuotaError,
+    RateLimited,
     Error,
     PasteFallback,
     Password,
@@ -197,6 +198,7 @@ fn status_for(e: &TranslateError) -> StripStatus {
         TranslateError::Offline => StripStatus::Offline,
         TranslateError::InvalidKey => StripStatus::KeyError,
         TranslateError::QuotaExceeded => StripStatus::QuotaError,
+        TranslateError::RateLimited => StripStatus::RateLimited,
         TranslateError::CapReached => StripStatus::Cap,
         TranslateError::Other(_) => StripStatus::Error,
     }
@@ -403,7 +405,7 @@ impl Controller {
             }
             Cmd::Retry => {
                 let resubmit = match &self.session {
-                    Some(s) => s.dirty && self.strip.status == StripStatus::Offline,
+                    Some(s) => s.dirty && matches!(self.strip.status, StripStatus::Offline | StripStatus::RateLimited),
                     None => false,
                 };
                 if resubmit {
@@ -432,7 +434,7 @@ impl Controller {
             }
             Err(e) => {
                 self.strip.status = status_for(&e);
-                if e == TranslateError::Offline {
+                if matches!(e, TranslateError::Offline | TranslateError::RateLimited) {
                     let tx = self.cmd_tx.clone();
                     tokio::spawn(async move {
                         tokio::time::sleep(OFFLINE_RETRY).await;
@@ -480,7 +482,7 @@ impl Controller {
     fn status_failed(&self) -> bool {
         matches!(
             self.strip.status,
-            StripStatus::Offline | StripStatus::KeyError | StripStatus::QuotaError | StripStatus::Cap | StripStatus::Error
+            StripStatus::Offline | StripStatus::KeyError | StripStatus::QuotaError | StripStatus::RateLimited | StripStatus::Cap | StripStatus::Error
         )
     }
 

@@ -1,7 +1,7 @@
 // The only module that talks to Tauri. Components import from here so tests can mock it.
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { PopupState, Settings, StripState, UsageSnapshot } from "./types";
+import type { KeyStatus, PopupState, Provider, Settings, StripState, UsageSnapshot } from "./types";
 
 export function onStrip(cb: (s: StripState) => void): Promise<UnlistenFn> {
   return listen<StripState>("strip-state", (e) => cb(e.payload));
@@ -18,8 +18,8 @@ export function onSettingsChanged(cb: (s: Settings) => void): Promise<UnlistenFn
 export const cmd = {
   getSettings: () => invoke<Settings>("get_settings"),
   saveSettings: (settings: Settings) => invoke<void>("save_settings", { settings }),
-  hasApiKey: () => invoke<boolean>("has_api_key"),
-  setApiKey: (key: string) => invoke<void>("set_api_key", { key }),
+  hasApiKey: () => invoke<KeyStatus>("has_api_key"),
+  setApiKey: (provider: Provider, key: string) => invoke<void>("set_api_key", { provider, key }),
   getUsage: () => invoke<UsageSnapshot>("get_usage"),
   cycleTarget: () => invoke<void>("cycle_target"),
   setTarget: (lang: string) => invoke<void>("set_target", { lang }),

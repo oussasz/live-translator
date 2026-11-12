@@ -2,9 +2,11 @@
 use crate::core::hotkey::Hotkey;
 use crate::core::settings::Settings;
 
-use crate::app::{hotkey_table, open_settings as show_settings, sync_autostart, AppState};
+use crate::app::{api_for, client_for, hotkey_table, open_settings as show_settings, pacing_for, sync_autostart, AppState};
+use crate::core::settings::Provider;
+use serde::Serialize;
 use crate::controller::{HotkeyId, InputEvent, KeyInput};
-use crate::core::google::{GoogleV2, TranslateApi};
+use crate::core::google::TranslateApi;
 use crate::core::types::TranslateError;
 use crate::core::usage::UsageSnapshot;
 use crate::win::{clipboard, keystore};
@@ -25,27 +27,51 @@ pub fn save_settings(app: AppHandle, state: State<'_, AppState>, settings: Setti
     state.cap_enabled.store(settings.cap_enabled, Ordering::SeqCst);
     sync_autostart(&app, settings.autostart);
     let target = settings.target.clone();
+    let service_changed = {
+        let old = state.settings.read().unwrap();
+        old.provider != settings.provider || old.groq_model != settings.groq_model
+    };
+    if service_changed {
+        state.api.set_opt(api_for(&settings));
+        state.translator.set_pacing(pacing_for(settings.provider));
+    }
     *state.settings.write().unwrap() = settings.clone();
     state.handle.set_target(target);
     let _ = app.emit("settings-changed", &settings);
     Ok(())
 }
 
-#[tauri::command]
-pub fn has_api_key() -> bool {
-    keystore::get_api_key().is_some()
+#[derive(Serialize)]
+pub struct KeyStatus {
+    pub google: bool,
+    pub groq: bool,
 }
 
 #[tauri::command]
-pub async fn set_api_key(state: State<'_, AppState>, key: String) -> Result<(), TranslateError> {
+pub fn has_api_key() -> KeyStatus {
+    KeyStatus {
+        google: keystore::get_api_key(Provider::Google).is_some(),
+        groq: keystore::get_api_key(Provider::Groq).is_some(),
+    }
+}
+
+/// Tests the key with one real translation, then stores it. If it's for the service in use, switch to it now.
+#[tauri::command]
+pub async fn set_api_key(state: State<'_, AppState>, provider: Provider, key: String) -> Result<(), TranslateError> {
     let key = key.trim().to_string();
     if key.is_empty() {
         return Err(TranslateError::InvalidKey);
     }
-    let api = Arc::new(GoogleV2::new(key.clone()));
+    let (current, model) = {
+        let s = state.settings.read().unwrap();
+        (s.provider, s.groq_model.clone())
+    };
+    let api: Arc<dyn TranslateApi> = client_for(provider, key.clone(), &model);
     api.translate("hello", "fr").await?;
-    keystore::set_api_key(&key).map_err(TranslateError::Other)?;
-    state.api.set(api);
+    keystore::set_api_key(provider, &key).map_err(TranslateError::Other)?;
+    if provider == current {
+        state.api.set(api);
+    }
     Ok(())
 }
 
@@ -112,6 +138,9 @@ pub fn validate_settings(s: &Settings) -> Result<(), String> {
     if let Some(bad) = s.favorites.iter().find(|f| !SUPPORTED_LANGS.contains(&f.as_str())) {
         return Err(format!("Unsupported language: {bad}"));
     }
+    if !crate::core::settings::GROQ_MODELS.contains(&s.groq_model.as_str()) {
+        return Err(format!("Unknown Groq model: {}", s.groq_model));
+    }
     if !s.favorites.contains(&s.target) {
         return Err("The target language must be one of your languages".into());
     }
@@ -120,6 +149,12 @@ pub fn validate_settings(s: &Settings) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn rejects_unknown_groq_model() {
+        let s = Settings { groq_model: "gpt-4".into(), ..Settings::default() };
+        assert!(validate_settings(&s).unwrap_err().contains("model"));
+    }
     use super::*;
     use crate::core::settings::Hotkeys;
 

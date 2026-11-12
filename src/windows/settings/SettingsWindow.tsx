@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { cmd } from "../../lib/ipc";
-import type { Settings, Theme, UsageSnapshot } from "../../lib/types";
+import type { KeyStatus, Settings, Theme, UsageSnapshot } from "../../lib/types";
+import { providerInfo } from "../../lib/providers";
+import { ServicePicker } from "./ServicePicker";
 import { FirstRun } from "./FirstRun";
 import { HotkeyRecorder } from "./HotkeyRecorder";
 import { KeyForm } from "./KeyForm";
@@ -25,7 +27,7 @@ function Switch({ id, checked, onChange }: { id: string; checked: boolean; onCha
 }
 
 export default function SettingsWindow() {
-  const [hasKey, setHasKey] = useState<boolean | null>(null);
+  const [keys, setKeys] = useState<KeyStatus | null>(null);
   const [onboarding, setOnboarding] = useState(false);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [usage, setUsage] = useState<UsageSnapshot | null>(null);
@@ -33,18 +35,18 @@ export default function SettingsWindow() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    cmd.hasApiKey().then((k) => {
-      setHasKey(k);
-      setOnboarding(!k);
+    Promise.all([cmd.hasApiKey(), cmd.getSettings()]).then(([k, st]) => {
+      setKeys(k);
+      setSettings(st);
+      setOnboarding(!k[st.provider]);
     });
-    cmd.getSettings().then(setSettings);
     const loadUsage = () => cmd.getUsage().then(setUsage).catch(() => {});
     loadUsage();
     const t = setInterval(loadUsage, 10000);
     return () => clearInterval(t);
   }, []);
 
-  if (hasKey === null || !settings) return null;
+  if (keys === null || !settings) return null;
 
   if (onboarding) {
     return (
@@ -53,7 +55,7 @@ export default function SettingsWindow() {
           settings={settings}
           onDone={(s) => {
             setSettings(s);
-            setHasKey(true);
+            setKeys({ ...keys, [s.provider]: true });
             setOnboarding(false);
           }}
         />
@@ -84,12 +86,28 @@ export default function SettingsWindow() {
         {error && <div className="banner-error">{error}</div>}
 
         <section className="card" aria-labelledby="h-key">
-          <h2 id="h-key">Google API key</h2>
-          {changingKey ? (
-            <KeyForm onSaved={() => setChangingKey(false)} />
+          <h2 id="h-key">Translation service</h2>
+          <ServicePicker
+            provider={settings.provider}
+            model={settings.groq_model}
+            onProvider={(p) => {
+              setChangingKey(false);
+              update({ ...settings, provider: p });
+            }}
+            onModel={(m) => update({ ...settings, groq_model: m })}
+          />
+          {changingKey || !keys[settings.provider] ? (
+            <KeyForm
+              key={settings.provider}
+              provider={settings.provider}
+              onSaved={() => {
+                setKeys({ ...keys, [settings.provider]: true });
+                setChangingKey(false);
+              }}
+            />
           ) : (
             <div className="row">
-              <span className="status-ok">{"✓"} Connected</span>
+              <span className="status-ok">✓ {providerInfo(settings.provider).name} connected</span>
               <button className="btn" onClick={() => setChangingKey(true)}>
                 Change key
               </button>
@@ -152,14 +170,23 @@ export default function SettingsWindow() {
 
         <section className="card" aria-labelledby="h-usage">
           <h2 id="h-usage">Usage</h2>
-          {usage && <UsageBar usage={usage} />}
-          <div className="row">
-            <label className="row-label" htmlFor="cap">
-              Stop at the free limit
-            </label>
-            <Switch id="cap" checked={settings.cap_enabled} onChange={(v) => update({ ...settings, cap_enabled: v })} />
-          </div>
-          <p className="hint">Google gives 500,000 characters free each month. With this on, you never pay.</p>
+          {usage && <UsageBar usage={usage} provider={settings.provider} />}
+          {settings.provider === "google" ? (
+            <>
+              <div className="row">
+                <label className="row-label" htmlFor="cap">
+                  Stop at the free limit
+                </label>
+                <Switch id="cap" checked={settings.cap_enabled} onChange={(v) => update({ ...settings, cap_enabled: v })} />
+              </div>
+              <p className="hint">Google gives 500,000 characters free each month. With this on, you never pay.</p>
+            </>
+          ) : (
+            <p className="hint">
+              Groq’s free plan allows 1,000 requests a day and 30 a minute. The app waits a little longer before
+              translating and paces itself to stay inside it.
+            </p>
+          )}
         </section>
       </div>
     </div>
