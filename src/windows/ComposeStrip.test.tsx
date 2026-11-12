@@ -1,0 +1,72 @@
+import { act, render, screen, fireEvent } from "@testing-library/react";
+import { vi } from "vitest";
+import type { StripState } from "../lib/types";
+
+let push: (s: StripState) => void = () => {};
+vi.mock("../lib/ipc", () => ({
+  onStrip: (cb: (s: StripState) => void) => {
+    push = cb;
+    return Promise.resolve(() => {});
+  },
+  cmd: { cycleTarget: vi.fn(), offlineChoice: vi.fn(), openSettings: vi.fn() },
+}));
+
+import { cmd } from "../lib/ipc";
+import ComposeStrip from "./ComposeStrip";
+
+const base: StripState = {
+  visible: true,
+  source: "",
+  caret: 0,
+  target: "en",
+  detected: null,
+  status: "idle",
+  pos: { x: 0, y: 0 },
+  offer_original: false,
+};
+
+function show(s: Partial<StripState>) {
+  render(<ComposeStrip />);
+  act(() => push({ ...base, ...s }));
+}
+
+test("renders_rtl_source_with_caret", () => {
+  show({ source: "مرحبا", caret: 2 });
+  const src = screen.getByTestId("source");
+  expect(src).toHaveAttribute("dir", "auto");
+  expect(src.textContent).toBe("مرحبا");
+  expect(screen.getByTestId("before-caret").textContent).toBe("مر");
+});
+
+test("badge_shows_detected_to_target", () => {
+  show({ detected: "ar", target: "en" });
+  const badge = screen.getByRole("button", { name: /AR.*EN/ });
+  fireEvent.click(badge);
+  expect(cmd.cycleTarget).toHaveBeenCalled();
+});
+
+test("offline_offer_buttons", () => {
+  show({ status: "offline", source: "salut", offer_original: true });
+  fireEvent.click(screen.getByRole("button", { name: "Insert original" }));
+  expect(cmd.offlineChoice).toHaveBeenCalledWith(true);
+  fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+  expect(cmd.offlineChoice).toHaveBeenCalledWith(false);
+});
+
+test("key_error_opens_settings", () => {
+  show({ status: "key_error" });
+  expect(screen.getByText("API key problem")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Open settings" }));
+  expect(cmd.openSettings).toHaveBeenCalled();
+});
+
+test("status_messages", () => {
+  show({ status: "password" });
+  expect(screen.getByText("Not available in password fields")).toBeInTheDocument();
+});
+
+test("hidden_when_not_visible", () => {
+  const { container } = render(<ComposeStrip />);
+  act(() => push({ ...base, visible: false }));
+  expect(container.querySelector(".strip")).toBeNull();
+});
