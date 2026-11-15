@@ -38,7 +38,11 @@ fn work_area() -> Rect {
 pub fn object_id(name: &str, path: &str) -> isize {
     let mut h = std::collections::hash_map::DefaultHasher::new();
     (name, path).hash(&mut h);
-    (h.finish() as isize).max(1)
+    // any non-zero value is a valid id; 0 means "unknown"
+    match h.finish() as isize {
+        0 => 1,
+        v => v,
+    }
 }
 
 pub fn current_id() -> isize {
