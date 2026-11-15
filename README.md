@@ -37,6 +37,20 @@ Models offered: GPT-OSS 20B (fastest, default), GPT-OSS 120B (best quality), Lla
 4. Restrict the key to the Cloud Translation API.
 5. Paste it into the app's first-run screen. It is tested once, then stored in Windows Credential Manager.
 
+## Linux (Kubuntu / KDE Plasma, Wayland or X11)
+
+1. Download the latest `.deb` from the repo's **Releases** page and install it:
+   ```bash
+   sudo apt install ./Live\ Translator_*_amd64.deb
+   ```
+2. Once: give your user access to the keyboard devices, then **log out and back in**:
+   ```bash
+   sudo usermod -aG input $USER
+   ```
+3. Start **Live Translator** from the app menu and paste your Groq key.
+
+How it works on Linux: keystrokes are read from `/dev/input` and re-sent through a virtual keyboard (`/dev/uinput`), translations are inserted by pasting (your clipboard text is restored), and focus/password fields come from accessibility (AT-SPI). In Chrome/Electron apps, enable accessibility (for example start Chrome with `--force-renderer-accessibility`) so caret position and password fields are detected. An AppImage is also published for other distributions.
+
 ## Build from source
 
 Requirements: Windows 10/11, Rust (MSVC toolchain), Node 20+, pnpm, Visual Studio Build Tools (C++), WebView2 runtime (built into Windows 11).
