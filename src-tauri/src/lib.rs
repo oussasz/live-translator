@@ -2,6 +2,10 @@ pub mod app;
 pub mod commands;
 pub mod controller;
 pub mod core;
+#[cfg(target_os = "linux")]
+pub mod linux;
+pub mod platform;
+#[cfg(windows)]
 pub mod win;
 
 use tauri::WindowEvent;

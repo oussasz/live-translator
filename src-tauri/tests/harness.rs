@@ -1,7 +1,7 @@
 //! Real-desktop integration tests: real hook, real SendInput, real UI Automation,
 //! a fake translation API. They take over the keyboard for a few seconds each.
 //! Run: cargo test --features test-support --test harness -- --ignored --test-threads=1
-#![cfg(feature = "test-support")]
+#![cfg(all(windows, feature = "test-support"))]
 
 use live_translator_lib::controller::{Controller, ControllerHandle, HotkeyId, PopupState, StripState, UiSink};
 use live_translator_lib::core::hotkey::Hotkey;

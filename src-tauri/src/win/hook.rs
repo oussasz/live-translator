@@ -1,11 +1,11 @@
 //! System-wide low-level keyboard + mouse hook on its own thread.
 //! The callback never blocks: it classifies, sends an event, and returns.
-use crate::controller::{HookState, HotkeyId, InputEvent, KeyInput};
-use crate::core::hotkey::{Hotkey, Mods};
+use crate::controller::{HookState, InputEvent, KeyInput};
+use crate::core::hotkey::Mods;
 use crate::win::keymap::{classify, decide, VK_PACKET};
 use std::cell::{Cell, RefCell};
 use std::sync::atomic::Ordering;
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::{Arc, OnceLock};
 use tokio::sync::mpsc::UnboundedSender;
 use windows::core::w;
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
@@ -24,7 +24,7 @@ pub const INJECT_TAG: usize = 0x4C54_5452;
 const WM_POWERBROADCAST: u32 = 0x0218;
 const PBT_APMRESUMEAUTOMATIC: usize = 0x0012;
 
-pub type HotkeyTable = Arc<RwLock<Vec<(Hotkey, HotkeyId)>>>;
+pub use crate::core::keys::HotkeyTable;
 
 struct Ctx {
     hotkeys: HotkeyTable,

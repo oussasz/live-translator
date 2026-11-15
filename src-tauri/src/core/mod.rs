@@ -2,6 +2,7 @@ pub mod compose;
 pub mod google;
 pub mod groq;
 pub mod hotkey;
+pub mod keys;
 pub mod placement;
 pub mod replace;
 pub mod settings;

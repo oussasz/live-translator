@@ -9,7 +9,7 @@ use crate::controller::{HotkeyId, InputEvent, KeyInput};
 use crate::core::google::TranslateApi;
 use crate::core::types::TranslateError;
 use crate::core::usage::UsageSnapshot;
-use crate::win::{clipboard, keystore};
+use crate::platform::{clipboard, keystore};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};

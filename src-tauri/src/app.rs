@@ -7,23 +7,16 @@ use crate::core::translator::Pacing;
 use crate::core::hotkey::Hotkey;
 use crate::core::settings::Settings;
 use crate::core::translator::Translator;
-use crate::core::types::Point;
 use crate::core::usage::UsageMeter;
-use crate::win::field::WinField;
-use crate::win::hook::{start_hook, HotkeyTable};
-use crate::win::{keystore, uia};
+use crate::platform::window::{hide, make_noactivate, show_at};
+use crate::platform::{keystore, start_hook, watch_focus, HotkeyTable, NativeField};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Emitter, Manager, WebviewWindow, Wry};
+use tauri::{AppHandle, Emitter, Manager, Wry};
 use tauri_plugin_notification::NotificationExt;
-use windows::Win32::Foundation::HWND;
-use windows::Win32::UI::WindowsAndMessaging::{
-    GetWindowLongPtrW, SetWindowLongPtrW, SetWindowPos, ShowWindow, GWL_EXSTYLE, HWND_TOPMOST, SWP_NOACTIVATE,
-    SWP_NOSIZE, SWP_SHOWWINDOW, SW_HIDE, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
-};
 
 pub struct AppState {
     pub handle: ControllerHandle,
@@ -67,37 +60,6 @@ pub fn hotkey_table(s: &Settings) -> Vec<(Hotkey, HotkeyId)> {
     .into_iter()
     .filter_map(|(t, id)| Hotkey::parse(t).ok().map(|h| (h, id)))
     .collect()
-}
-
-// ---------- non-activating overlay windows ----------
-
-fn hwnd_of(w: &WebviewWindow) -> Option<HWND> {
-    w.hwnd().ok().map(|h| HWND(h.0))
-}
-
-pub fn make_noactivate(w: &WebviewWindow) {
-    if let Some(h) = hwnd_of(w) {
-        unsafe {
-            let ex = GetWindowLongPtrW(h, GWL_EXSTYLE);
-            SetWindowLongPtrW(h, GWL_EXSTYLE, ex | (WS_EX_NOACTIVATE.0 | WS_EX_TOOLWINDOW.0) as isize);
-        }
-    }
-}
-
-fn show_at(w: &WebviewWindow, p: Point) {
-    if let Some(h) = hwnd_of(w) {
-        unsafe {
-            let _ = SetWindowPos(h, Some(HWND_TOPMOST), p.x, p.y, 0, 0, SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
-        }
-    }
-}
-
-fn hide(w: &WebviewWindow) {
-    if let Some(h) = hwnd_of(w) {
-        unsafe {
-            let _ = ShowWindow(h, SW_HIDE);
-        }
-    }
 }
 
 pub fn open_settings(app: &AppHandle) {
@@ -243,7 +205,7 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let translator = Translator::new(api.clone(), usage.clone(), cap_enabled.clone(), tx);
     translator.set_pacing(pacing_for(provider));
     let translator_for_state = translator.clone();
-    let field = Arc::new(WinField::new());
+    let field = Arc::new(NativeField::new());
     let ui_for_ctrl = ui.clone();
     let settings_for_ctrl = settings.clone();
     let path_for_ctrl = settings_path.clone();
@@ -251,7 +213,7 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         Controller::spawn(field, ui_for_ctrl, translator, rx, settings_for_ctrl, path_for_ctrl)
     });
     start_hook(hotkeys.clone(), handle.state.clone(), handle.input.clone());
-    uia::watch_focus(handle.input.clone());
+    watch_focus(handle.input.clone());
 
     for label in ["strip", "popup"] {
         if let Some(w) = app.get_webview_window(label) {
