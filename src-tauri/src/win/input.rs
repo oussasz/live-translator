@@ -1,4 +1,5 @@
 //! Synthesized keyboard input. Every event carries INJECT_TAG so our own hook ignores it.
+use crate::controller::EnterMods;
 use crate::core::replace::ReplacePlan;
 use crate::win::hook::INJECT_TAG;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
@@ -52,10 +53,26 @@ pub fn execute(plan: &ReplacePlan) {
     send(&plan_inputs(plan));
 }
 
-pub fn send_enter() {
+/// Enter, wrapped in the given modifiers (Shift+Enter = new line in chat apps).
+pub fn enter_inputs(mods: EnterMods) -> Vec<INPUT> {
     let mut v = Vec::new();
+    let held: Vec<VIRTUAL_KEY> = [(mods.ctrl, VK_CONTROL), (mods.shift, VIRTUAL_KEY(0x10))]
+        .into_iter()
+        .filter(|(on, _)| *on)
+        .map(|(_, k)| k)
+        .collect();
+    for k in &held {
+        v.push(ki(*k, 0, KEYBD_EVENT_FLAGS(0), INJECT_TAG));
+    }
     tap(&mut v, VK_RETURN, false, INJECT_TAG);
-    send(&v);
+    for k in held.iter().rev() {
+        v.push(ki(*k, 0, KEYEVENTF_KEYUP, INJECT_TAG));
+    }
+    v
+}
+
+pub fn send_enter(mods: EnterMods) {
+    send(&enter_inputs(mods));
 }
 
 pub fn send_ctrl_c() {
@@ -99,6 +116,19 @@ pub fn wait_modifiers_released(max_ms: u64) {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn enter_inputs_wrap_modifiers_all_tagged() {
+        let v = enter_inputs(EnterMods { shift: true, ctrl: false });
+        // shift down, enter down, enter up, shift up
+        assert_eq!(v.len(), 4);
+        assert_eq!(parts(&v[0]).0, 0x10);
+        assert_eq!(parts(&v[1]).0, 0x0D);
+        assert_eq!(parts(&v[3]).0, 0x10);
+        assert!(parts(&v[3]).2 & KEYEVENTF_KEYUP.0 != 0);
+        assert!(v.iter().all(|i| parts(i).3 == INJECT_TAG));
+        assert_eq!(enter_inputs(EnterMods::default()).len(), 2);
+    }
     use super::*;
 
     fn parts(i: &INPUT) -> (u16, u16, u32, usize) {

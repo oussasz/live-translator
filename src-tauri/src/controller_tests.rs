@@ -63,11 +63,12 @@ impl Field for FakeField {
         s.caret = start + plan.type_text.len();
         WriteOutcome::Ok
     }
-    fn send_enter(&self) {
+    fn send_enter(&self, mods: EnterMods) {
         let mut s = self.st.lock().unwrap();
         let c = s.caret;
-        s.text.insert_str(c, "⏎");
-        s.caret += "⏎".len();
+        let mark = if mods == EnterMods::default() { "⏎" } else { "\n" };
+        s.text.insert_str(c, mark);
+        s.caret += mark.len();
     }
     fn set_clipboard(&self, text: &str) {
         self.st.lock().unwrap().clipboard = Some(text.into());
@@ -525,4 +526,79 @@ async fn rate_limited_shows_status_and_retries() {
     assert_eq!(r.strip().status, StripStatus::RateLimited);
     wait(2500).await;
     assert_eq!(r.field.text(), "SALUT");
+}
+
+// ---- Shift+Enter and the movable strip ----
+
+#[tokio::test(start_paused = true)]
+async fn shift_enter_flushes_then_newline_and_keeps_session() {
+    let r = rig();
+    r.api.push_delays(&[100]);
+    r.toggle();
+    r.typ("abc");
+    r.key(KeyInput::ModEnter(EnterMods { shift: true, ctrl: false }));
+    wait(400).await;
+    assert_eq!(r.field.text(), "ABC\n");
+    assert!(r.h.state.active.load(Ordering::SeqCst));
+    r.typ("d");
+    wait(300).await;
+    assert_eq!(r.field.text(), "ABC\nD");
+}
+
+#[tokio::test(start_paused = true)]
+async fn shift_enter_failed_flush_keeps_text_and_line() {
+    let r = rig();
+    r.api.fail_always(Some(TranslateError::Offline));
+    r.toggle();
+    r.typ("abc");
+    wait(300).await;
+    r.key(KeyInput::ModEnter(EnterMods { shift: true, ctrl: false }));
+    wait(10).await;
+    assert_eq!(r.field.text(), "");
+    assert_eq!(r.strip().source, "abc");
+}
+
+#[tokio::test(start_paused = true)]
+async fn pinned_strip_position_is_used() {
+    let r = rig();
+    r.settings.write().unwrap().strip_pos = Some(Point { x: 10, y: 20 });
+    r.toggle();
+    wait(10).await;
+    assert_eq!(r.strip().pos, Some(Point { x: 10, y: 20 }));
+}
+
+#[tokio::test(start_paused = true)]
+async fn dragging_moves_strip_and_drop_pins_it() {
+    let r = rig();
+    r.toggle();
+    wait(10).await;
+    let start = r.strip().pos.unwrap();
+    r.h.move_strip_by(30, -12);
+    r.h.move_strip_by(5, 2);
+    wait(10).await;
+    let moved = Point { x: start.x + 35, y: start.y - 10 };
+    assert_eq!(r.strip().pos, Some(moved));
+    r.h.pin_strip();
+    wait(10).await;
+    assert_eq!(r.settings.read().unwrap().strip_pos, Some(moved));
+    assert_eq!(Settings::load(&r.dir.path().join("settings.json")).strip_pos, Some(moved));
+    // a click on the strip at its new place must not finish the sentence
+    r.typ("ab");
+    wait(300).await;
+    r.send(InputEvent::MouseDown { x: moved.x + 3, y: moved.y + 3 });
+    r.typ("c");
+    wait(300).await;
+    assert_eq!(r.strip().source, "abc");
+}
+
+#[tokio::test(start_paused = true)]
+async fn unpin_follows_caret_again() {
+    let r = rig();
+    r.settings.write().unwrap().strip_pos = Some(Point { x: 10, y: 20 });
+    r.toggle();
+    wait(10).await;
+    r.h.unpin_strip();
+    wait(10).await;
+    assert_eq!(r.settings.read().unwrap().strip_pos, None);
+    assert_eq!(r.strip().pos, Some(Point { x: 100, y: 500 - STRIP_SIZE.h - 8 }));
 }

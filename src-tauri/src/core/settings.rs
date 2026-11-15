@@ -1,5 +1,5 @@
 //! User settings persisted as JSON in %APPDATA%\LiveTranslator.
-use crate::core::types::Lang;
+use crate::core::types::{Lang, Point};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -54,6 +54,8 @@ pub struct Settings {
     pub cap_enabled: bool,
     pub provider: Provider,
     pub groq_model: String,
+    /// Where the user dragged the strip; None = follow the text cursor.
+    pub strip_pos: Option<Point>,
 }
 
 impl Default for Settings {
@@ -67,6 +69,7 @@ impl Default for Settings {
             cap_enabled: true,
             provider: Provider::Groq,
             groq_model: GROQ_MODELS[0].into(),
+            strip_pos: None,
         }
     }
 }
@@ -116,6 +119,16 @@ pub(crate) fn save_json_atomic<T: Serialize>(path: &Path, value: &T) -> std::io:
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn strip_pos_defaults_to_none_and_roundtrips() {
+        assert_eq!(Settings::default().strip_pos, None);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let s = Settings { strip_pos: Some(crate::core::types::Point { x: 10, y: 20 }), ..Settings::default() };
+        s.save(&path).unwrap();
+        assert_eq!(Settings::load(&path).strip_pos, Some(crate::core::types::Point { x: 10, y: 20 }));
+    }
 
     #[test]
     fn provider_defaults_to_groq_with_fast_model() {

@@ -1,7 +1,7 @@
 //! The typing-flow brain. Talks to Windows only through `Field` and to the UI only
 //! through `UiSink`, so the whole flow is testable with fakes.
 use crate::core::compose::{Applied, ComposeSession, EditOp};
-use crate::core::placement::place_near;
+use crate::core::placement::{clamp_into, place_near};
 use crate::core::replace::{plan_replace, ReplacePlan};
 use crate::core::settings::Settings;
 use crate::core::translator::{Translator, TranslatorOutput};
@@ -30,11 +30,20 @@ pub enum HotkeyId {
 
 /// What the hook saw. The hook sends a key's real meaning only when it swallowed it;
 /// a key it let through to the app during a session arrives as `Other`.
+/// Modifiers held with Enter. Shift+Enter is "new line" in most chat apps.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct EnterMods {
+    pub shift: bool,
+    pub ctrl: bool,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum KeyInput {
     Text(String),
     Edit(EditOp),
     Enter,
+    /// Shift+Enter / Ctrl+Enter: finish the translation first, then send the same keys.
+    ModEnter(EnterMods),
     Escape,
     Paste,
     Hotkey(HotkeyId),
@@ -66,7 +75,7 @@ pub enum WriteOutcome {
 pub trait Field: Send + Sync {
     fn focus(&self) -> Option<FocusInfo>;
     fn write(&self, plan: &ReplacePlan, expect_suffix: &str) -> WriteOutcome;
-    fn send_enter(&self);
+    fn send_enter(&self, mods: EnterMods);
     fn set_clipboard(&self, text: &str);
     fn clipboard_text(&self) -> Option<String>;
     fn read_selection(&self) -> Option<(String, Option<Rect>)>;
@@ -136,6 +145,9 @@ enum Cmd {
     ClosePopup,
     HidePasswordNotice,
     Retry,
+    MoveStripBy(i32, i32),
+    PinStrip,
+    UnpinStrip,
 }
 
 #[derive(Clone)]
@@ -154,6 +166,18 @@ impl ControllerHandle {
     }
     pub fn reply_in(&self, t: Lang) {
         let _ = self.cmd.send(Cmd::ReplyIn(t));
+    }
+    /// While the user drags the strip's handle (physical pixels).
+    pub fn move_strip_by(&self, dx: i32, dy: i32) {
+        let _ = self.cmd.send(Cmd::MoveStripBy(dx, dy));
+    }
+    /// Drag finished: keep the strip where it is from now on.
+    pub fn pin_strip(&self) {
+        let _ = self.cmd.send(Cmd::PinStrip);
+    }
+    /// Follow the text cursor again.
+    pub fn unpin_strip(&self) {
+        let _ = self.cmd.send(Cmd::UnpinStrip);
     }
     pub fn close_popup(&self) {
         let _ = self.cmd.send(Cmd::ClosePopup);
@@ -347,7 +371,8 @@ impl Controller {
                 }
             }
             InputEvent::Key(KeyInput::Edit(op)) => self.edit(op),
-            InputEvent::Key(KeyInput::Enter) => self.enter(input).await,
+            InputEvent::Key(KeyInput::Enter) => self.enter(input, EnterMods::default()).await,
+            InputEvent::Key(KeyInput::ModEnter(m)) => self.enter(input, m).await,
             InputEvent::Key(KeyInput::Other) => self.lock_tail(),
             InputEvent::MouseDown { x, y } => {
                 if !self.point_in_strip(x, y) {
@@ -396,6 +421,29 @@ impl Controller {
                 }
             }
             Cmd::ClosePopup => self.hide_popup(),
+            Cmd::MoveStripBy(dx, dy) => {
+                if let Some(p) = self.strip.pos {
+                    self.strip.pos = Some(Point { x: p.x + dx, y: p.y + dy });
+                    self.push_strip();
+                }
+            }
+            Cmd::PinStrip => {
+                let mut s = self.settings.write().unwrap();
+                s.strip_pos = self.strip.pos;
+                let _ = s.save(&self.settings_path);
+            }
+            Cmd::UnpinStrip => {
+                {
+                    let mut s = self.settings.write().unwrap();
+                    s.strip_pos = None;
+                    let _ = s.save(&self.settings_path);
+                }
+                if let Some(focus) = self.session.as_ref().map(|s| s.focus.clone()) {
+                    let anchor = focus.caret.unwrap_or_else(|| default_anchor(focus.work_area));
+                    self.strip.pos = Some(place_near(anchor, STRIP_SIZE, focus.work_area, GAP));
+                    self.push_strip();
+                }
+            }
             Cmd::HidePasswordNotice => {
                 if self.session.is_none() && self.strip.status == StripStatus::Password {
                     self.strip.visible = false;
@@ -453,7 +501,11 @@ impl Controller {
         self.leftover = None;
         self.strip.offer_original = false;
         let anchor = focus.caret.unwrap_or_else(|| default_anchor(focus.work_area));
-        self.strip.pos = Some(place_near(anchor, STRIP_SIZE, focus.work_area, GAP));
+        let pinned = self.settings.read().unwrap().strip_pos;
+        self.strip.pos = Some(match pinned {
+            Some(p) => clamp_into(p, STRIP_SIZE, focus.work_area),
+            None => place_near(anchor, STRIP_SIZE, focus.work_area, GAP),
+        });
         self.strip.visible = true;
         self.strip.detected = None;
         if focus.is_password {
@@ -596,7 +648,7 @@ impl Controller {
 
     /// Enter: make sure the field holds the final translation, then send Enter.
     /// Never sends when the translation failed, the window changed, or the user clicked away meanwhile.
-    async fn enter(&mut self, input: &mut UnboundedReceiver<InputEvent>) {
+    async fn enter(&mut self, input: &mut UnboundedReceiver<InputEvent>, mods: EnterMods) {
         let Some(s) = &self.session else { return };
         let hwnd = s.focus.hwnd;
         if s.dirty && !s.compose.is_tail_empty() {
@@ -638,7 +690,7 @@ impl Controller {
             return;
         }
         self.lock_tail();
-        self.field.send_enter();
+        self.field.send_enter(mods);
         self.push_strip();
     }
 

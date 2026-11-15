@@ -45,4 +45,7 @@ export const cmd = {
   copyText: () => Promise.resolve(),
   offlineChoice: () => Promise.resolve(),
   openSettings: () => Promise.resolve(),
+  stripDragBy: () => Promise.resolve(),
+  stripDragEnd: () => Promise.resolve(),
+  stripUnpin: () => Promise.resolve(),
 };

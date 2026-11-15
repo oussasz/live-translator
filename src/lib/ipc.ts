@@ -28,4 +28,7 @@ export const cmd = {
   copyText: (text: string) => invoke<void>("copy_text", { text }),
   offlineChoice: (insertOriginal: boolean) => invoke<void>("offline_choice", { insertOriginal }),
   openSettings: () => invoke<void>("open_settings"),
+  stripDragBy: (dx: number, dy: number) => invoke<void>("strip_drag_by", { dx, dy }),
+  stripDragEnd: () => invoke<void>("strip_drag_end"),
+  stripUnpin: () => invoke<void>("strip_unpin"),
 };

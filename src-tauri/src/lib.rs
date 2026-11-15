@@ -28,6 +28,9 @@ pub fn run() {
             commands::copy_text,
             commands::offline_choice,
             commands::open_settings,
+            commands::strip_drag_by,
+            commands::strip_drag_end,
+            commands::strip_unpin,
         ])
         .setup(|app| app::setup(app))
         .on_window_event(|window, event| {

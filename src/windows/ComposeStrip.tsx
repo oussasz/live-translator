@@ -12,6 +12,8 @@ export default function ComposeStrip() {
   const [pulse, setPulse] = useState(false);
   const lastTarget = useRef<string | null>(null);
   const caretRef = useRef<HTMLSpanElement>(null);
+  // Drag: screen position where it started, and how far (physical px) we've already moved the window.
+  const drag = useRef<{ x0: number; y0: number; sentX: number; sentY: number } | null>(null);
 
   // Long sentences: keep the caret (where you're typing) in view instead of cutting off the end.
   useLayoutEffect(() => {
@@ -48,6 +50,41 @@ export default function ComposeStrip() {
   return (
     <div className="strip-host">
       <div className="strip" data-tone={tone}>
+        <button
+          className="grip"
+          aria-label="Move the bar (double-click to follow the cursor again)"
+          title="Drag to move · double-click to follow the cursor"
+          onPointerDown={(e) => {
+            if (e.button !== 0) return;
+            drag.current = { x0: e.screenX, y0: e.screenY, sentX: 0, sentY: 0 };
+            e.currentTarget.setPointerCapture?.(e.pointerId);
+          }}
+          onPointerMove={(e) => {
+            const d = drag.current;
+            if (!d) return;
+            const dpr = window.devicePixelRatio || 1;
+            const tx = Math.round((e.screenX - d.x0) * dpr);
+            const ty = Math.round((e.screenY - d.y0) * dpr);
+            const dx = tx - d.sentX;
+            const dy = ty - d.sentY;
+            if (dx !== 0 || dy !== 0) {
+              d.sentX = tx;
+              d.sentY = ty;
+              cmd.stripDragBy(dx, dy);
+            }
+          }}
+          onPointerUp={(e) => {
+            if (!drag.current) return;
+            drag.current = null;
+            e.currentTarget.releasePointerCapture?.(e.pointerId);
+            cmd.stripDragEnd();
+          }}
+          onDoubleClick={() => cmd.stripUnpin()}
+        >
+          <svg width="8" height="14" viewBox="0 0 8 14" aria-hidden="true">
+            {[0, 1].map((c) => [0, 1, 2].map((r) => <circle key={`${c}${r}`} cx={2 + c * 4} cy={2 + r * 5} r="1.3" />))}
+          </svg>
+        </button>
         <button
           className={"badge" + (pulse ? " pulse" : "")}
           onClick={() => cmd.cycleTarget()}

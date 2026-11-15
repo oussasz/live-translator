@@ -111,6 +111,21 @@ pub fn offline_choice(state: State<'_, AppState>, insert_original: bool) {
 }
 
 #[tauri::command]
+pub fn strip_drag_by(state: State<'_, AppState>, dx: i32, dy: i32) {
+    state.handle.move_strip_by(dx, dy);
+}
+
+#[tauri::command]
+pub fn strip_drag_end(state: State<'_, AppState>) {
+    state.handle.pin_strip();
+}
+
+#[tauri::command]
+pub fn strip_unpin(state: State<'_, AppState>) {
+    state.handle.unpin_strip();
+}
+
+#[tauri::command]
 pub fn open_settings(app: AppHandle) {
     show_settings(&app);
 }

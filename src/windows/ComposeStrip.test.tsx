@@ -8,7 +8,7 @@ vi.mock("../lib/ipc", () => ({
     push = cb;
     return Promise.resolve(() => {});
   },
-  cmd: { cycleTarget: vi.fn(), offlineChoice: vi.fn(), openSettings: vi.fn() },
+  cmd: { cycleTarget: vi.fn(), offlineChoice: vi.fn(), openSettings: vi.fn(), stripDragBy: vi.fn(), stripDragEnd: vi.fn(), stripUnpin: vi.fn() },
 }));
 
 import { cmd } from "../lib/ipc";
@@ -68,6 +68,24 @@ test("status_messages", () => {
 test("rate_limited_message", () => {
   show({ status: "rate_limited", source: "salut", caret: 5 });
   expect(screen.getByText("Groq rate limit \u2014 retrying")).toBeInTheDocument();
+});
+
+test("grip_drag_moves_and_pins", () => {
+  show({ source: "abc", caret: 3 });
+  const grip = screen.getByRole("button", { name: /Move the bar/ });
+  fireEvent.pointerDown(grip, { screenX: 100, screenY: 100, pointerId: 1, button: 0 });
+  fireEvent.pointerMove(grip, { screenX: 130, screenY: 90, pointerId: 1 });
+  fireEvent.pointerMove(grip, { screenX: 135, screenY: 92, pointerId: 1 });
+  fireEvent.pointerUp(grip, { screenX: 135, screenY: 92, pointerId: 1 });
+  expect(cmd.stripDragBy).toHaveBeenNthCalledWith(1, 30, -10);
+  expect(cmd.stripDragBy).toHaveBeenNthCalledWith(2, 5, 2);
+  expect(cmd.stripDragEnd).toHaveBeenCalledTimes(1);
+});
+
+test("grip_double_click_follows_cursor_again", () => {
+  show({ source: "abc", caret: 3 });
+  fireEvent.doubleClick(screen.getByRole("button", { name: /Move the bar/ }));
+  expect(cmd.stripUnpin).toHaveBeenCalled();
 });
 
 test("hidden_when_not_visible", () => {

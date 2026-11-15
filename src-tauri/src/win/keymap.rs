@@ -1,5 +1,5 @@
 //! Pure key classification and swallow decisions used by the low-level hook.
-pub use crate::controller::{HotkeyId, KeyInput};
+pub use crate::controller::{EnterMods, HotkeyId, KeyInput};
 use crate::core::compose::EditOp;
 pub use crate::core::hotkey::Mods;
 
@@ -37,7 +37,15 @@ pub fn classify(vk: u16, mods: Mods, text: Option<String>) -> KeyInput {
                 _ => EditOp::End,
             });
         }
-        VK_RETURN => return if any_mod || mods.shift { KeyInput::Other } else { KeyInput::Enter },
+        VK_RETURN => {
+            return if real_alt || mods.win {
+                KeyInput::Other
+            } else if real_ctrl || mods.shift {
+                KeyInput::ModEnter(EnterMods { shift: mods.shift, ctrl: real_ctrl })
+            } else {
+                KeyInput::Enter
+            };
+        }
         VK_ESCAPE if !any_mod => return KeyInput::Escape,
         VK_V if real_ctrl && !real_alt && !mods.win && !mods.shift => return KeyInput::Paste,
         _ => {}
@@ -54,13 +62,34 @@ pub fn decide(input: &KeyInput, active: bool, tail_empty: bool) -> bool {
         KeyInput::Hotkey(_) => true,
         _ if !active => false,
         KeyInput::Text(_) | KeyInput::Paste | KeyInput::Escape => true,
-        KeyInput::Enter | KeyInput::Edit(_) => !tail_empty,
+        KeyInput::Enter | KeyInput::ModEnter(_) | KeyInput::Edit(_) => !tail_empty,
         KeyInput::Other => false,
     }
 }
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn shift_or_ctrl_enter_is_mod_enter() {
+        assert_eq!(
+            classify(VK_RETURN, Mods { shift: true, ..m() }, None),
+            KeyInput::ModEnter(EnterMods { shift: true, ctrl: false })
+        );
+        assert_eq!(
+            classify(VK_RETURN, Mods { ctrl: true, ..m() }, None),
+            KeyInput::ModEnter(EnterMods { shift: false, ctrl: true })
+        );
+        assert_eq!(classify(VK_RETURN, Mods { alt: true, ..m() }, None), KeyInput::Other);
+    }
+
+    #[test]
+    fn decide_mod_enter_like_enter() {
+        let k = KeyInput::ModEnter(EnterMods { shift: true, ctrl: false });
+        assert!(decide(&k, true, false));
+        assert!(!decide(&k, true, true));
+        assert!(!decide(&k, false, false));
+    }
     use super::*;
     use crate::core::compose::EditOp;
 
@@ -81,7 +110,6 @@ mod tests {
     fn modified_navigation_is_other() {
         assert_eq!(classify(VK_LEFT, Mods { shift: true, ..m() }, None), KeyInput::Other);
         assert_eq!(classify(VK_LEFT, Mods { ctrl: true, ..m() }, None), KeyInput::Other);
-        assert_eq!(classify(VK_RETURN, Mods { shift: true, ..m() }, None), KeyInput::Other);
     }
 
     #[test]

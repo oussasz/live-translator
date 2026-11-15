@@ -1,6 +1,13 @@
 //! Positions the strip/popup next to the caret or selection, inside the monitor work area.
 pub use crate::core::types::{Point, Rect, Size};
 
+/// Keeps a window at `p` fully inside `work_area` (for a strip the user pinned).
+pub fn clamp_into(p: Point, size: Size, work_area: Rect) -> Point {
+    let max_x = work_area.x + work_area.w - size.w;
+    let max_y = work_area.y + work_area.h - size.h;
+    Point { x: p.x.min(max_x).max(work_area.x), y: p.y.min(max_y).max(work_area.y) }
+}
+
 /// Above the anchor, left-aligned; below if there's no room above; clamped to `work_area`.
 pub fn place_near(anchor: Rect, size: Size, work_area: Rect, gap: i32) -> Point {
     let mut y = anchor.y - size.h - gap;
@@ -14,6 +21,13 @@ pub fn place_near(anchor: Rect, size: Size, work_area: Rect, gap: i32) -> Point 
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn clamp_keeps_pinned_point_on_screen() {
+        assert_eq!(clamp_into(Point { x: 50, y: 60 }, SIZE, WORK), Point { x: 50, y: 60 });
+        assert_eq!(clamp_into(Point { x: 1900, y: 1030 }, SIZE, WORK), Point { x: 1620, y: 1000 });
+        assert_eq!(clamp_into(Point { x: -40, y: -5 }, SIZE, WORK), Point { x: 0, y: 0 });
+    }
     use super::*;
 
     const SIZE: Size = Size { w: 300, h: 40 };

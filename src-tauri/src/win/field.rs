@@ -1,5 +1,5 @@
 //! The real `Field`: writes with SendInput, reads with UI Automation.
-use crate::controller::{Field, FocusInfo, WriteOutcome};
+use crate::controller::{EnterMods, Field, FocusInfo, WriteOutcome};
 use crate::core::replace::ReplacePlan;
 use crate::core::types::Rect;
 use crate::win::{clipboard, input, uia};
@@ -35,9 +35,9 @@ impl Field for WinField {
         WriteOutcome::Failed
     }
 
-    fn send_enter(&self) {
+    fn send_enter(&self, mods: EnterMods) {
         input::prepare_injection();
-        input::send_enter();
+        input::send_enter(mods);
     }
 
     fn is_focused(&self, hwnd: isize) -> bool {
