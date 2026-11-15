@@ -8,7 +8,7 @@ vi.mock("../lib/ipc", () => ({
     push = cb;
     return Promise.resolve(() => {});
   },
-  cmd: { cycleTarget: vi.fn(), offlineChoice: vi.fn(), openSettings: vi.fn(), stripDragBy: vi.fn(), stripDragEnd: vi.fn(), stripUnpin: vi.fn() },
+  cmd: { cycleTarget: vi.fn(), offlineChoice: vi.fn(), openSettings: vi.fn(), stripDragBy: vi.fn(), stripDragEnd: vi.fn(), stripUnpin: vi.fn(), overlayHover: vi.fn() },
 }));
 
 import { cmd } from "../lib/ipc";
@@ -86,6 +86,15 @@ test("grip_double_click_follows_cursor_again", () => {
   show({ source: "abc", caret: 3 });
   fireEvent.doubleClick(screen.getByRole("button", { name: /Move the bar/ }));
   expect(cmd.stripUnpin).toHaveBeenCalled();
+});
+
+test("reports_pointer_over_strip", () => {
+  show({ source: "abc", caret: 3 });
+  const host = document.querySelector(".strip-host")!;
+  fireEvent.mouseEnter(host);
+  expect(cmd.overlayHover).toHaveBeenLastCalledWith(true);
+  fireEvent.mouseLeave(host);
+  expect(cmd.overlayHover).toHaveBeenLastCalledWith(false);
 });
 
 test("hidden_when_not_visible", () => {

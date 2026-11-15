@@ -126,6 +126,16 @@ pub fn strip_unpin(state: State<'_, AppState>) {
 }
 
 #[tauri::command]
+pub fn overlay_hover(inside: bool) {
+    crate::platform::overlay_hover(inside);
+}
+
+#[tauri::command]
+pub fn platform_status() -> crate::platform::PlatformStatus {
+    crate::platform::status()
+}
+
+#[tauri::command]
 pub fn open_settings(app: AppHandle) {
     show_settings(&app);
 }

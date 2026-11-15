@@ -42,6 +42,12 @@ export interface PopupState {
 
 export type Theme = "system" | "light" | "dark";
 
+export interface PlatformStatus {
+  os: "windows" | "linux";
+  problem: string | null;
+  fix: string | null;
+}
+
 export type Provider = "groq" | "google";
 
 export interface KeyStatus {

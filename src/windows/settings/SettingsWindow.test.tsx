@@ -21,6 +21,7 @@ vi.mock("../../lib/ipc", () => ({
     hasApiKey: vi.fn(),
     setApiKey: vi.fn(),
     getUsage: vi.fn(),
+    platformStatus: vi.fn(),
   },
 }));
 
@@ -33,6 +34,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   m.getSettings.mockResolvedValue(structuredClone(defaults));
   m.saveSettings.mockResolvedValue(undefined);
+  m.platformStatus.mockResolvedValue({ os: "windows", problem: null, fix: null });
   m.hasApiKey.mockResolvedValue({ google: true, groq: true });
   m.getUsage.mockResolvedValue({ month: "2026-11", chars: 41200, limit: 500000, requests_today: 120, request_limit: 1000 });
 });
@@ -132,4 +134,15 @@ test("save_error_is_shown", async () => {
   render(<SettingsWindow />);
   fireEvent.click(await screen.findByRole("radio", { name: "Light" }));
   expect(await screen.findByText("Pick at least one language")).toBeInTheDocument();
+});
+
+test("linux_permission_problem_shows_fix", async () => {
+  m.platformStatus.mockResolvedValue({
+    os: "linux",
+    problem: "Live Translator can't use the keyboard yet.",
+    fix: "Run: sudo usermod -aG input $USER — then log out and back in.",
+  });
+  render(<SettingsWindow />);
+  expect(await screen.findByText("Live Translator can't use the keyboard yet.")).toBeInTheDocument();
+  expect(screen.getByText(/sudo usermod -aG input/)).toBeInTheDocument();
 });

@@ -48,4 +48,6 @@ export const cmd = {
   stripDragBy: () => Promise.resolve(),
   stripDragEnd: () => Promise.resolve(),
   stripUnpin: () => Promise.resolve(),
+  overlayHover: () => Promise.resolve(),
+  platformStatus: () => Promise.resolve({ os: "windows" as const, problem: null, fix: null }),
 };

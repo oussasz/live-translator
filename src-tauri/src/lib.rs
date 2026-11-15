@@ -35,6 +35,8 @@ pub fn run() {
             commands::strip_drag_by,
             commands::strip_drag_end,
             commands::strip_unpin,
+            commands::overlay_hover,
+            commands::platform_status,
         ])
         .setup(|app| app::setup(app))
         .on_window_event(|window, event| {

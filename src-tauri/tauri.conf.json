@@ -74,6 +74,20 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "shortDescription": "Live in-field translator"
+    "shortDescription": "Live in-field translator",
+    "linux": {
+      "deb": {
+        "depends": [
+          "libxkbcommon0",
+          "libwebkit2gtk-4.1-0",
+          "libayatana-appindicator3-1"
+        ],
+        "files": {
+          "/usr/lib/udev/rules.d/70-live-translator.rules": "linux/70-live-translator.rules",
+          "/usr/lib/modules-load.d/live-translator-uinput.conf": "linux/live-translator-uinput.conf"
+        },
+        "postInstallScript": "linux/postinst.sh"
+      }
+    }
   }
 }

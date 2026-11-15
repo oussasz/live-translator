@@ -186,6 +186,7 @@ fn build_tray(app: &AppHandle, ui: &TauriUiSink, target: &str) -> tauri::Result<
 // ---------- startup ----------
 
 pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    crate::platform::init(app.handle());
     let dir = Settings::default_dir();
     let settings_path = dir.join("settings.json");
     let initial = Settings::load(&settings_path);

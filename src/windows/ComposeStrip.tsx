@@ -48,7 +48,7 @@ export default function ComposeStrip() {
   const tone = WARN.has(s.status) ? "warn" : "normal";
 
   return (
-    <div className="strip-host">
+    <div className="strip-host" onMouseEnter={() => cmd.overlayHover(true)} onMouseLeave={() => cmd.overlayHover(false)}>
       <div className="strip" data-tone={tone}>
         <button
           className="grip"

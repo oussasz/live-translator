@@ -36,7 +36,7 @@ export default function ReadPopup() {
   const canReply = !!p.detected && p.detected !== p.target;
 
   return (
-    <div className="popup-host">
+    <div className="popup-host" onMouseEnter={() => cmd.overlayHover(true)} onMouseLeave={() => cmd.overlayHover(false)}>
       <div className="popup" role="dialog" aria-label="Translation">
         <div className="popup-head">
           <span className="popup-langs">

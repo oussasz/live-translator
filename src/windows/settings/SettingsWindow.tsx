@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { cmd } from "../../lib/ipc";
-import type { KeyStatus, Settings, Theme, UsageSnapshot } from "../../lib/types";
+import type { KeyStatus, PlatformStatus, Settings, Theme, UsageSnapshot } from "../../lib/types";
 import { providerInfo } from "../../lib/providers";
 import { ServicePicker } from "./ServicePicker";
 import { FirstRun } from "./FirstRun";
@@ -33,6 +33,7 @@ export default function SettingsWindow() {
   const [usage, setUsage] = useState<UsageSnapshot | null>(null);
   const [changingKey, setChangingKey] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [platform, setPlatform] = useState<PlatformStatus | null>(null);
 
   useEffect(() => {
     Promise.all([cmd.hasApiKey(), cmd.getSettings()]).then(([k, st]) => {
@@ -40,6 +41,7 @@ export default function SettingsWindow() {
       setSettings(st);
       setOnboarding(!k[st.provider]);
     });
+    cmd.platformStatus?.().then(setPlatform).catch(() => {});
     const loadUsage = () => cmd.getUsage().then(setUsage).catch(() => {});
     loadUsage();
     const t = setInterval(loadUsage, 10000);
@@ -84,6 +86,12 @@ export default function SettingsWindow() {
         </div>
 
         {error && <div className="banner-error">{error}</div>}
+        {platform?.problem && (
+          <div className="banner-error" role="alert">
+            <strong>{platform.problem}</strong>
+            {platform.fix && <div style={{ marginTop: 4, userSelect: "text" }}>{platform.fix}</div>}
+          </div>
+        )}
 
         <section className="card" aria-labelledby="h-key">
           <h2 id="h-key">Translation service</h2>

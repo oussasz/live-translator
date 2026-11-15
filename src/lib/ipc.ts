@@ -1,7 +1,7 @@
 // The only module that talks to Tauri. Components import from here so tests can mock it.
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { KeyStatus, PopupState, Provider, Settings, StripState, UsageSnapshot } from "./types";
+import type { KeyStatus, PlatformStatus, PopupState, Provider, Settings, StripState, UsageSnapshot } from "./types";
 
 export function onStrip(cb: (s: StripState) => void): Promise<UnlistenFn> {
   return listen<StripState>("strip-state", (e) => cb(e.payload));
@@ -31,4 +31,6 @@ export const cmd = {
   stripDragBy: (dx: number, dy: number) => invoke<void>("strip_drag_by", { dx, dy }),
   stripDragEnd: () => invoke<void>("strip_drag_end"),
   stripUnpin: () => invoke<void>("strip_unpin"),
+  overlayHover: (inside: boolean) => invoke<void>("overlay_hover", { inside }),
+  platformStatus: () => invoke<PlatformStatus>("platform_status"),
 };

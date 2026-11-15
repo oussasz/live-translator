@@ -8,7 +8,7 @@ vi.mock("../lib/ipc", () => ({
     push = cb;
     return Promise.resolve(() => {});
   },
-  cmd: { copyText: vi.fn(() => Promise.resolve()), popupReply: vi.fn(), popupClose: vi.fn() },
+  cmd: { copyText: vi.fn(() => Promise.resolve()), popupReply: vi.fn(), popupClose: vi.fn(), overlayHover: vi.fn() },
 }));
 
 import { cmd } from "../lib/ipc";
@@ -57,6 +57,12 @@ test("error_state", () => {
   show({ translation: null, error: "Offline" });
   expect(screen.getByText("Offline \u2014 will retry")).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Copy" })).toBeNull();
+});
+
+test("reports_pointer_over_popup", () => {
+  show({});
+  fireEvent.mouseEnter(document.querySelector(".popup-host")!);
+  expect(cmd.overlayHover).toHaveBeenLastCalledWith(true);
 });
 
 test("close_button", () => {
