@@ -41,7 +41,7 @@ Models offered: GPT-OSS 20B (fastest, default), GPT-OSS 120B (best quality), Lla
 
 1. Download the latest `.deb` from the repo's **Releases** page and install it:
    ```bash
-   sudo apt install ./Live\ Translator_*_amd64.deb
+   sudo apt install ./Live.Translator_*_amd64.deb
    ```
 2. Once: give your user access to the keyboard devices, then **log out and back in**:
    ```bash
